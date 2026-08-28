@@ -1,6 +1,8 @@
 # ckout
 
-Terminal UI for git. The home screen is **branches + changed files**. Diffs stay out of the way until you ask. Every action shows the exact `git` command before it runs.
+Open-source terminal UI for git. Review branches and local changes without leaving the keyboard. Diffs stay out of the way until you ask. Every mutating action shows the **exact `git` command** before it runs.
+
+ckout is MIT-licensed. Contributions are welcome.
 
 Requires **Node.js 18+** and **git** on your `PATH`.
 
@@ -16,32 +18,192 @@ Or run without installing:
 npx ckout
 ```
 
-Start it from inside a git repository.
+Start it from inside a git repository:
 
 ```bash
 cd path/to/repo
 ckout
 ```
 
-## Keys
+```bash
+ckout --help
+ckout --version
+```
 
-- `tab` — branches list ↔ file list (while typing: checkout / commit / filter)
-- `↑` `↓` — move the active list
-- `enter` — checkout the highlighted branch, or open a full-screen diff of a file
-- `n` — create/checkout a branch from the prompt
-- `c` — commit all with a message
-- `f` / `u` / `p` — fetch / pull / push (push asks to confirm)
-- `d` / `e` — full-screen diff / open in `$CKOUT_EDITOR`, `$VISUAL`, `$EDITOR`, or `cursor`
-- `space` — mark files to stage (`s` stages them)
-- `m` — merge the highlighted branch into the current one (confirms)
-- `esc` — leave prompt / close diff / cancel confirm
-- `ctrl+c` — quit
+## Why ckout
+
+- One screen for **all branches** (local and remote) and **changed files**
+- Diff is **opt-in** (full-screen pager or your editor), not the default view
+- Commands are transparent: the prompt and confirm overlay print the `git` argv that will run
+- Built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs)
+
+## Screen
+
+```
+ckout  my-repo  branches · checkout
+[main]  3 changed  ↑1 ↓0
+┌─ Branches * 1/12 ─┐  ┌─ Changes ────────────┐
+│ * main            │  │ [ ] M src/app.tsx    │
+│   feature/login   │  │ [x] A readme.md      │
+│   origin/main     │  │                      │
+└───────────────────┘  └──────────────────────┘
+checkout   git checkout feature/login
+· Branch to checkout or create
+↑↓ move  tab files/branches  enter checkout  …
+```
+
+| Area     | What it shows                                                     |
+| -------- | ----------------------------------------------------------------- |
+| Header   | Product name, repo folder, active list, prompt mode               |
+| Status   | Current branch, dirty/clean, ahead/behind vs upstream             |
+| Branches | Every local and remote ref; `*` and green = checked out           |
+| Changes  | Working-tree files with index/worktree status (`M`, `A`, `??`, …) |
+| Prompt   | Mode label, the git command that will run, and an input line      |
+| Footer   | Context-sensitive key hints                                       |
+
+Status refreshes about every 3 seconds after git commands, and whenever the working tree is polled.
+
+## Features
+
+### Branches
+
+- Lists **local and remote** branches (remotes are dimmed)
+- `↑` `↓` move the highlight; the list scrolls so every branch is reachable
+- `enter` on a **local** branch runs `git checkout <branch>` immediately
+- `enter` on a **remote** branch asks to confirm, then `git checkout -B <short> <remote-ref>`
+- `n` opens the prompt to **create or checkout** by name (`git checkout` or `git checkout -b`)
+- `m` **merges** the highlighted branch into the current one (confirm): `git merge <ref>`
+
+### Changes
+
+- File list of uncommitted work; `tab` focuses this list
+- `space` marks/unmarks files (`[x]`); if none are marked, stage uses the highlighted file
+- `s` stages marked files: `git add -- <files>`
+- `/` filters the file list by path (prompt mode `filter`; no git)
+- `c` commits **all** working-tree changes: `git add -A && git commit -m "<message>"` (confirm)
+
+### Diff (opt-in)
+
+Diff is not shown on the home screen.
+
+- `enter` (on a file) or `d` — full-screen unified diff (loads `git diff` / `git diff --cached`)
+- `↑` `↓` / `PgUp` `PgDn` — scroll; `←` `→` — previous/next file
+- `esc` — back to the home screen
+- `e` — open the file in an editor; if the file is gone (deleted), opens a temporary `.diff` instead
+
+### Sync with remotes
+
+| Key | Command     | Confirm?        |
+| --- | ----------- | --------------- |
+| `f` | `git fetch` | No              |
+| `u` | `git pull`  | No              |
+| `p` | `git push`  | Yes (`Y` / `n`) |
+
+### Command transparency
+
+- The prompt line shows the git command for the current mode (checkout, commit, or filter)
+- Confirm overlays (`Y` / `n`; Enter does not confirm) are used for **commit**, **push**, **merge**, and **remote checkout**
+- The overlay includes the **working directory** (repo root)
+
+ckout runs `git` with explicit argv (no shell). It does not use a high-level git library for writes.
+
+## Keyboard reference
+
+Idle (not typing, not in the diff pager):
+
+| Key       | Action                                          |
+| --------- | ----------------------------------------------- |
+| `tab`     | Switch Branches ↔ Changes                       |
+| `↑` `↓`   | Move in the active list                         |
+| `enter`   | Checkout highlighted branch, or open file diff  |
+| `n`       | New / checkout branch (prompt)                  |
+| `c`       | Commit all (prompt, then confirm)               |
+| `i`       | Type in the current prompt mode                 |
+| printable | Start typing (same as `i` with that character)  |
+| `/`       | Filter files                                    |
+| `f`       | Fetch                                           |
+| `u`       | Pull                                            |
+| `p`       | Push (confirm)                                  |
+| `s`       | Stage marked (or highlighted) files             |
+| `m`       | Merge highlighted branch into current (confirm) |
+| `d`       | Full-screen diff of the highlighted file        |
+| `e`       | Open highlighted file (or patch) in editor      |
+| `space`   | Mark/unmark a file (focuses Changes)            |
+| `esc`     | Clear prompt text / errors                      |
+| `ctrl+c`  | Quit                                            |
+
+While typing in the prompt:
+
+| Key     | Action                                  |
+| ------- | --------------------------------------- |
+| `enter` | Submit (commit / checkout / filter)     |
+| `↑` `↓` | Prompt history                          |
+| `tab`   | Cycle modes: checkout → commit → filter |
+| `esc`   | Leave the prompt without running git    |
+
+Full-screen diff:
+
+| Key           | Action             |
+| ------------- | ------------------ |
+| `↑` `↓`       | Scroll one line    |
+| `PgUp` `PgDn` | Scroll a page      |
+| `←` `→`       | Other changed file |
+| `e`           | Open in editor     |
+| `esc`         | Close diff         |
+
+Confirm overlay:
+
+| Key   | Action                |
+| ----- | --------------------- |
+| `Y`   | Run the shown command |
+| `n`   | Cancel                |
+| `esc` | Cancel                |
+
+## Editor
+
+`e` uses, in order:
+
+1. `$CKOUT_EDITOR`
+2. `$VISUAL`
+3. `$EDITOR`
+4. `cursor`
+
+GUI tools (`cursor`, `code`, `code-insiders`, `subl`, `atom`, `windsurf`) open detached so the TUI stays up. Other editors inherit the terminal.
+
+Example:
+
+```bash
+export CKOUT_EDITOR='code -g'
+ckout
+```
 
 ## Development
 
 ```bash
+git clone <your-fork-url>
+cd ckout
 npm install
 npm test
 npm run build
 node dist/cli.js
 ```
+
+| Script          | Purpose                       |
+| --------------- | ----------------------------- |
+| `npm test`      | Prettier, xo, Ava             |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run dev`   | Watch compile                 |
+
+Stack: TypeScript, React 18, Ink 5, `@inkjs/ui`. Git is spawned as a child process.
+
+## Contributing
+
+ckout is open source under the [MIT License](LICENSE).
+
+- Bug reports and ideas: open an issue on the project tracker
+- Code: fork, branch, keep changes focused, run `npm test`
+- Keep git commands visible in the UI when you add actions
+
+## License
+
+[MIT](LICENSE) © Parikshith V
