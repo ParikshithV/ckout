@@ -68,7 +68,7 @@ export default function DiffView({
 			<Text dimColor>
 				{start + 1}–{end} / {lines.length}
 				{fullscreen
-					? ' · ↑↓ scroll · e editor · esc close'
+					? ' · ↑↓ scroll · e editor · c commit · esc close'
 					: ' · d full · e editor'}
 			</Text>
 			{visible.map((line, index) => (

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import path from 'node:path';
 import {Box, Text, useApp, useStdout} from 'ink';
 import {Alert, Spinner, StatusMessage} from '@inkjs/ui';
@@ -94,9 +94,12 @@ export default function App() {
 	const [activeList, setActiveList] = useState<ActiveList>('branches');
 	const [insertMode, setInsertMode] = useState(false);
 	const [prompt, setPrompt] = useState('');
-	const [promptKey, setPromptKey] = useState(0);
 	const [history, setHistory] = useState<string[]>([]);
-	const [historyIndex, setHistoryIndex] = useState(-1);
+	const insertModeRef = useRef(false);
+	const promptRef = useRef('');
+	const historyRef = useRef<string[]>([]);
+	const historyIndexRef = useRef(-1);
+	historyRef.current = history;
 	const [repoPath, setRepoPath] = useState<string | undefined>();
 	const [status, setStatus] = useState<RepoStatus | undefined>();
 	const [branches, setBranches] = useState<GitBranch[]>([]);
@@ -318,6 +321,7 @@ export default function App() {
 	const onRequest = useCallback(
 		(command: PendingCommand) => {
 			if (command.confirm) {
+				insertModeRef.current = false;
 				setPending(command);
 				setInsertMode(false);
 				return;
@@ -337,21 +341,28 @@ export default function App() {
 		setHistory(current =>
 			[trimmed, ...current.filter(item => item !== trimmed)].slice(0, 50),
 		);
-		setHistoryIndex(-1);
+		historyIndexRef.current = -1;
 	}, []);
 
 	const exitInsert = useCallback(() => {
+		insertModeRef.current = false;
+		promptRef.current = '';
+		historyIndexRef.current = -1;
 		setInsertMode(false);
 		setPrompt('');
-		setPromptKey(key => key + 1);
-		setHistoryIndex(-1);
 	}, []);
 
 	const enterInsert = useCallback((seed = '') => {
+		insertModeRef.current = true;
+		promptRef.current = seed;
+		historyIndexRef.current = -1;
 		setInsertMode(true);
 		setPrompt(seed);
-		setPromptKey(key => key + 1);
-		setHistoryIndex(-1);
+	}, []);
+
+	const setPromptValue = useCallback((value: string) => {
+		promptRef.current = value;
+		setPrompt(value);
 	}, []);
 
 	const runActionId = useCallback(
@@ -414,6 +425,7 @@ export default function App() {
 			return;
 		}
 
+		insertModeRef.current = false;
 		setInsertMode(false);
 		setActiveList('files');
 		setDiffOpen(true);
@@ -506,6 +518,15 @@ export default function App() {
 				return;
 			}
 
+			if (input === 'c') {
+				stdout.write('\u001B[2J\u001B[3J\u001B[H');
+				setDiffOpen(false);
+				setPromptMode('commit');
+				setActiveList('files');
+				enterInsert();
+				return;
+			}
+
 			if (input === 'e') {
 				openEditor();
 				return;
@@ -537,7 +558,7 @@ export default function App() {
 		}
 
 		if (key.tab && !key.shift) {
-			if (insertMode) {
+			if (insertModeRef.current) {
 				setPromptMode(current => nextPromptMode(current));
 				return;
 			}
@@ -546,32 +567,47 @@ export default function App() {
 			return;
 		}
 
-		if (insertMode) {
+		if (insertModeRef.current) {
 			if (key.escape) {
 				exitInsert();
 				return;
 			}
 
-			if (key.upArrow && history.length > 0) {
-				const next = Math.min(history.length - 1, historyIndex + 1);
-				const value = history[next] ?? '';
-				setHistoryIndex(next);
-				setPrompt(value);
-				setPromptKey(current => current + 1);
+			if (key.return) {
+				submitPrompt(promptRef.current);
+				return;
+			}
+
+			if (key.upArrow && historyRef.current.length > 0) {
+				const next = Math.min(
+					historyRef.current.length - 1,
+					historyIndexRef.current + 1,
+				);
+				historyIndexRef.current = next;
+				setPromptValue(historyRef.current[next] ?? '');
+				return;
 			}
 
 			if (key.downArrow) {
-				const next = historyIndex - 1;
+				const next = historyIndexRef.current - 1;
 				if (next < 0) {
-					setHistoryIndex(-1);
-					setPrompt('');
-					setPromptKey(current => current + 1);
+					historyIndexRef.current = -1;
+					setPromptValue('');
 					return;
 				}
 
-				setHistoryIndex(next);
-				setPrompt(history[next] ?? '');
-				setPromptKey(current => current + 1);
+				historyIndexRef.current = next;
+				setPromptValue(historyRef.current[next] ?? '');
+				return;
+			}
+
+			if (key.backspace || key.delete) {
+				setPromptValue(promptRef.current.slice(0, -1));
+				return;
+			}
+
+			if (isPrintable(input, key)) {
+				setPromptValue(promptRef.current + input);
 			}
 
 			return;
@@ -760,10 +796,7 @@ export default function App() {
 					mode={promptMode}
 					commandHint={commandHint}
 					insertMode={insertMode}
-					inputKey={promptKey}
-					defaultValue={prompt}
-					onChange={setPrompt}
-					onSubmit={submitPrompt}
+					value={prompt}
 				/>
 			)}
 			<Footer

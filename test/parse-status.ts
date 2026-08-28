@@ -40,7 +40,16 @@ test('parseBranches marks the current branch', t => {
 		[
 			['main', true, false],
 			['feature', false, false],
-			['remotes/origin/main', false, true],
 		],
+	);
+});
+
+test('parseBranches keeps remotes that have no local branch', t => {
+	const branches = parseBranches(
+		['* main', '  remotes/origin/main', '  remotes/origin/pr-12'].join('\n'),
+	);
+	t.deepEqual(
+		branches.map(branch => branch.name),
+		['main', 'remotes/origin/pr-12'],
 	);
 });

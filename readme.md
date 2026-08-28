@@ -32,7 +32,7 @@ ckout --version
 
 ## Why ckout
 
-- One screen for **all branches** (local and remote) and **changed files**
+- One screen for **local branches** (plus remotes you have not checked out yet) and **changed files**
 - Diff is **opt-in** (full-screen pager or your editor), not the default view
 - Commands are transparent: the prompt and confirm overlay print the `git` argv that will run
 - Built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs)
@@ -45,21 +45,21 @@ ckout  my-repo  branches · checkout
 ┌─ Branches * 1/12 ─┐  ┌─ Changes ────────────┐
 │ * main            │  │ [ ] M src/app.tsx    │
 │   feature/login   │  │ [x] A readme.md      │
-│   origin/main     │  │                      │
+│                   │  │                      │
 └───────────────────┘  └──────────────────────┘
 checkout   git checkout feature/login
 · Branch to checkout or create
 ↑↓ move  tab files/branches  enter checkout  …
 ```
 
-| Area     | What it shows                                                     |
-| -------- | ----------------------------------------------------------------- |
-| Header   | Product name, repo folder, active list, prompt mode               |
-| Status   | Current branch, dirty/clean, ahead/behind vs upstream             |
-| Branches | Every local and remote ref; `*` and green = checked out           |
-| Changes  | Working-tree files with index/worktree status (`M`, `A`, `??`, …) |
-| Prompt   | Mode label, the git command that will run, and an input line      |
-| Footer   | Context-sensitive key hints                                       |
+| Area     | What it shows                                                      |
+| -------- | ------------------------------------------------------------------ |
+| Header   | Product name, repo folder, active list, prompt mode                |
+| Status   | Current branch, dirty/clean, ahead/behind vs upstream              |
+| Branches | Local branches, then remotes with no local twin; `*` = checked out |
+| Changes  | Working-tree files with index/worktree status (`M`, `A`, `??`, …)  |
+| Prompt   | Mode label, the git command that will run, and an input line       |
+| Footer   | Context-sensitive key hints                                        |
 
 Status refreshes about every 3 seconds after git commands, and whenever the working tree is polled.
 
@@ -67,7 +67,7 @@ Status refreshes about every 3 seconds after git commands, and whenever the work
 
 ### Branches
 
-- Lists **local and remote** branches (remotes are dimmed)
+- Lists **local** branches first. Remote-tracking refs (`origin/foo`) appear only when there is no local `foo` (so `origin/main` is hidden if you already have `main`). Remotes are dimmed. Ahead/behind vs upstream stays in the status bar.
 - `↑` `↓` move the highlight; the list scrolls so every branch is reachable
 - `enter` on a **local** branch runs `git checkout <branch>` immediately
 - `enter` on a **remote** branch asks to confirm, then `git checkout -B <short> <remote-ref>`
@@ -149,6 +149,7 @@ Full-screen diff:
 | `PgUp` `PgDn` | Scroll a page      |
 | `←` `→`       | Other changed file |
 | `e`           | Open in editor     |
+| `c`           | Close diff, commit |
 | `esc`         | Close diff         |
 
 Confirm overlay:
@@ -166,9 +167,11 @@ Confirm overlay:
 1. `$CKOUT_EDITOR`
 2. `$VISUAL`
 3. `$EDITOR`
-4. `cursor`
+4. Then, if that binary is missing: `cursor`, `code`, `open -t` (macOS), `nano`, `vim`, `vi`
 
-GUI tools (`cursor`, `code`, `code-insiders`, `subl`, `atom`, `windsurf`) open detached so the TUI stays up. Other editors inherit the terminal.
+A missing editor no longer crashes the TUI. If none of the candidates exist, the status line asks you to set `CKOUT_EDITOR`.
+
+GUI tools (`cursor`, `code`, `code-insiders`, `subl`, `atom`, `windsurf`, `open`) open detached so the TUI stays up. Other editors inherit the terminal.
 
 Example:
 

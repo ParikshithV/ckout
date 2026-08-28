@@ -23,7 +23,7 @@ export default function Footer({
 	if (insertMode) {
 		hints = 'enter submit  ↑↓ history  tab mode  esc leave prompt';
 	} else if (diffOpen) {
-		hints = '↑↓ scroll  ←→ file  e editor  esc back';
+		hints = '↑↓ scroll  ←→ file  e editor  c commit  esc back';
 	}
 
 	return (

@@ -1,6 +1,5 @@
 import React from 'react';
 import {Box, Text} from 'ink';
-import {TextInput} from '@inkjs/ui';
 import {type PromptMode} from '../types.js';
 import {promptPlaceholder} from '../prompt.js';
 
@@ -8,21 +7,18 @@ type Props = {
 	mode: PromptMode;
 	commandHint: string;
 	insertMode: boolean;
-	inputKey: number;
-	defaultValue: string;
-	onChange: (value: string) => void;
-	onSubmit: (value: string) => void;
+	value: string;
 };
 
 export default function PromptBar({
 	mode,
 	commandHint,
 	insertMode,
-	inputKey,
-	defaultValue,
-	onChange,
-	onSubmit,
+	value,
 }: Props) {
+	const placeholder = promptPlaceholder(mode);
+	const empty = value.length === 0;
+
 	return (
 		<Box
 			flexDirection="column"
@@ -38,14 +34,17 @@ export default function PromptBar({
 			</Box>
 			<Box gap={1}>
 				<Text color="cyan">{insertMode ? '>' : '·'}</Text>
-				<TextInput
-					key={inputKey}
-					isDisabled={!insertMode}
-					placeholder={promptPlaceholder(mode)}
-					defaultValue={defaultValue}
-					onChange={onChange}
-					onSubmit={onSubmit}
-				/>
+				{empty ? (
+					<Text dimColor>
+						{placeholder}
+						{insertMode ? '█' : ''}
+					</Text>
+				) : (
+					<Text>
+						{value}
+						{insertMode ? '█' : ''}
+					</Text>
+				)}
 			</Box>
 		</Box>
 	);

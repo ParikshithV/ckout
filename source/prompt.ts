@@ -27,11 +27,15 @@ export function isPrintable(
 	input: string,
 	key: {ctrl: boolean; meta: boolean},
 ): boolean {
-	return (
-		input.length === 1 &&
-		!key.ctrl &&
-		!key.meta &&
-		input >= ' ' &&
-		input !== '\u007F'
-	);
+	if (key.ctrl || key.meta || input.length === 0) {
+		return false;
+	}
+
+	for (const character of input) {
+		if (character < ' ' || character === '\u007F') {
+			return false;
+		}
+	}
+
+	return true;
 }

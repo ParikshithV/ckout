@@ -11,14 +11,20 @@ const guiEditors = new Set([
 	'subl',
 	'atom',
 	'windsurf',
+	'open',
 ]);
+
+export type EditorCommand = {
+	bin: string;
+	extraArgs: string[];
+};
 
 export function parseEditorCommand(
 	value = process.env['CKOUT_EDITOR'] ??
 		process.env['VISUAL'] ??
 		process.env['EDITOR'] ??
 		'cursor',
-): {bin: string; extraArgs: string[]} {
+): EditorCommand {
 	const parts = value
 		.trim()
 		.split(/\s+/)
@@ -33,25 +39,88 @@ export function isGuiEditor(bin: string): boolean {
 	return guiEditors.has(path.basename(bin));
 }
 
-export async function openPathInEditor(target: string): Promise<void> {
-	const {bin, extraArgs} = parseEditorCommand();
-	const gui = isGuiEditor(bin);
-	const child = spawn(bin, [...extraArgs, target], {
-		detached: gui,
-		stdio: gui ? 'ignore' : 'inherit',
-	});
+export function editorAttempts(
+	preferred = parseEditorCommand(),
+): EditorCommand[] {
+	const seen = new Set<string>();
+	const attempts: EditorCommand[] = [];
 
-	if (gui) {
-		child.unref();
-		return;
+	const push = (bin: string, extraArgs: string[]) => {
+		const key = `${bin}\0${extraArgs.join('\0')}`;
+		if (seen.has(key)) {
+			return;
+		}
+
+		seen.add(key);
+		attempts.push({bin, extraArgs});
+	};
+
+	push(preferred.bin, preferred.extraArgs);
+	push('cursor', []);
+	push('code', []);
+	if (process.platform === 'darwin') {
+		push('open', ['-t']);
 	}
 
+	push('nano', []);
+	push('vim', []);
+	push('vi', []);
+	return attempts;
+}
+
+function isMissingBinary(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		'code' in error &&
+		(error as NodeJS.ErrnoException).code === 'ENOENT'
+	);
+}
+
+async function spawnEditor(
+	command: EditorCommand,
+	target: string,
+): Promise<void> {
+	const gui = isGuiEditor(command.bin);
 	await new Promise<void>((resolve, reject) => {
-		child.on('error', reject);
-		child.on('exit', () => {
+		const child = spawn(command.bin, [...command.extraArgs, target], {
+			detached: gui,
+			stdio: gui ? 'ignore' : 'inherit',
+		});
+		child.once('error', reject);
+		if (gui) {
+			child.once('spawn', () => {
+				child.unref();
+				resolve();
+			});
+			return;
+		}
+
+		child.once('exit', () => {
 			resolve();
 		});
 	});
+}
+
+export async function openPathInEditor(target: string): Promise<void> {
+	const attempts = editorAttempts();
+	const missing: string[] = [];
+
+	for (const command of attempts) {
+		try {
+			await spawnEditor(command, target);
+			return;
+		} catch (error: unknown) {
+			if (!isMissingBinary(error)) {
+				throw error;
+			}
+
+			missing.push(command.bin);
+		}
+	}
+
+	throw new Error(
+		`No editor found (tried ${missing.join(', ')}). Set CKOUT_EDITOR.`,
+	);
 }
 
 export async function openDiffInEditor(
@@ -76,8 +145,10 @@ export async function openChangeInEditor(options: {
 	const absolute = path.join(options.repoPath, options.relativePath);
 	try {
 		await fs.access(absolute);
-		await openPathInEditor(absolute);
 	} catch {
 		await openDiffInEditor(options.relativePath, options.diff);
+		return;
 	}
+
+	await openPathInEditor(absolute);
 }
