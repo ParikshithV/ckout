@@ -1,10 +1,25 @@
 {
-	"name": "gittux",
-	"version": "0.0.0",
+	"name": "ckout",
+	"version": "0.1.0",
+	"description": "ckout — terminal UI for git: branches, changes, and exact commands before they run.",
 	"license": "MIT",
+	"author": "Parikshith V <hello@parikshithv.in>",
+	"keywords": [
+		"ckout",
+		"git",
+		"tui",
+		"cli",
+		"ink",
+		"terminal",
+		"branches",
+		"commit"
+	],
 	"bin": {
-		"gittux": "dist/cli.js"
+		"ckout": "dist/cli.js"
 	},
+	"files": [
+		"dist"
+	],
 	"type": "module",
 	"engines": {
 		"node": ">=18"
@@ -12,11 +27,9 @@
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc --watch",
-		"test": "prettier --check . && xo && ava"
+		"test": "prettier --check . && xo && ava",
+		"prepublishOnly": "npm test && npm run build"
 	},
-	"files": [
-		"dist"
-	],
 	"dependencies": {
 		"@inkjs/ui": "^2.0.0",
 		"ink": "^5.2.1",

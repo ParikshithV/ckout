@@ -8,9 +8,9 @@ import App from './app.js';
 meow(
 	`
 	Usage
-	  $ gittux
+	  $ ckout
 
-	Git TUI. Branches and changed files on one screen. Diff is opt-in.
+	ckout: branches and changed files on one screen. Diff is opt-in.
 
 	Keys
 	  tab       Switch branches / files (prompt mode while typing)

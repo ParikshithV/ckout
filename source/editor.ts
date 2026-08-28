@@ -14,7 +14,7 @@ const guiEditors = new Set([
 ]);
 
 export function parseEditorCommand(
-	value = process.env['GITTUX_EDITOR'] ??
+	value = process.env['CKOUT_EDITOR'] ??
 		process.env['VISUAL'] ??
 		process.env['EDITOR'] ??
 		'cursor',
@@ -58,7 +58,7 @@ export async function openDiffInEditor(
 	filePath: string,
 	diff: string,
 ): Promise<void> {
-	const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'gittux-'));
+	const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ckout-'));
 	const destination = path.join(
 		directory,
 		`${path.basename(filePath) || 'changes'}.diff`,

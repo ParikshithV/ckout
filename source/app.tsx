@@ -711,7 +711,7 @@ export default function App() {
 		<Box flexDirection="column" width="100%" height={terminalRows}>
 			<Box gap={1} paddingX={1}>
 				<Text bold color="green">
-					GitTux
+					ckout
 				</Text>
 				<Text>{repoPath ? repoLabel(repoPath) : 'no repo'}</Text>
 				<Text dimColor>

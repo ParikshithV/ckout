@@ -1,16 +1,27 @@
-# GitTux
+# ckout
 
-Terminal UI for git. The home screen is **branches + changed files**. Diffs stay out of the way until you ask.
+Terminal UI for git. The home screen is **branches + changed files**. Diffs stay out of the way until you ask. Every action shows the exact `git` command before it runs.
 
-## Run
+Requires **Node.js 18+** and **git** on your `PATH`.
+
+## Install
 
 ```bash
-npm install
-npm run build
-node dist/cli.js
+npm install --global ckout
 ```
 
-Launch from a git repository (the current working directory).
+Or run without installing:
+
+```bash
+npx ckout
+```
+
+Start it from inside a git repository.
+
+```bash
+cd path/to/repo
+ckout
+```
 
 ## Keys
 
@@ -20,10 +31,17 @@ Launch from a git repository (the current working directory).
 - `n` — create/checkout a branch from the prompt
 - `c` — commit all with a message
 - `f` / `u` / `p` — fetch / pull / push (push asks to confirm)
-- `d` / `e` — full-screen diff / open in `$GITTUX_EDITOR` / `$VISUAL` / `$EDITOR` / `cursor`
+- `d` / `e` — full-screen diff / open in `$CKOUT_EDITOR`, `$VISUAL`, `$EDITOR`, or `cursor`
 - `space` — mark files to stage (`s` stages them)
 - `m` — merge the highlighted branch into the current one (confirms)
 - `esc` — leave prompt / close diff / cancel confirm
 - `ctrl+c` — quit
 
-The prompt always shows the exact `git` command that will run.
+## Development
+
+```bash
+npm install
+npm test
+npm run build
+node dist/cli.js
+```
