@@ -33,6 +33,7 @@ ckout --version
 ## Why ckout
 
 - One screen for **local branches** (plus remotes you have not checked out yet) and **changed files**
+- Keyboard starts on the **commit message**; `tab` moves to branches and files when you need diffs
 - Diff is **opt-in** (full-screen pager or your editor), not the default view
 - Commands are transparent: the prompt and confirm overlay print the `git` argv that will run
 - Built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs)
@@ -40,25 +41,25 @@ ckout --version
 ## Screen
 
 ```
-ckout  my-repo  branches · checkout
+ckout  my-repo  prompt · commit
 [main]  3 changed  ↑1 ↓0
-┌─ Branches * 1/12 ─┐  ┌─ Changes ────────────┐
+┌─ Branches 1/12 ───┐  ┌─ Changes ────────────┐
 │ * main            │  │ [ ] M src/app.tsx    │
 │   feature/login   │  │ [x] A readme.md      │
 │                   │  │                      │
 └───────────────────┘  └──────────────────────┘
-checkout   git checkout feature/login
-· Branch to checkout or create
-↑↓ move  tab files/branches  enter checkout  …
+commit   git add -A && git commit -m "…"
+> █Commit message
+enter commit · tab branches · esc lists · …
 ```
 
 | Area     | What it shows                                                      |
 | -------- | ------------------------------------------------------------------ |
-| Header   | Product name, repo folder, active list, prompt mode                |
+| Header   | Product name, repo folder, focus (prompt / branches / files), mode |
 | Status   | Current branch, dirty/clean, ahead/behind vs upstream              |
 | Branches | Local branches, then remotes with no local twin; `*` = checked out |
 | Changes  | Working-tree files with index/worktree status (`M`, `A`, `??`, …)  |
-| Prompt   | Mode label, the git command that will run, and an input line       |
+| Prompt   | Commit message by default; `>` means the input has keyboard focus  |
 | Footer   | Context-sensitive key hints                                        |
 
 Status refreshes about every 3 seconds after git commands, and whenever the working tree is polled.
@@ -76,11 +77,11 @@ Status refreshes about every 3 seconds after git commands, and whenever the work
 
 ### Changes
 
-- File list of uncommitted work; `tab` focuses this list
+- File list of uncommitted work; `tab` from the commit prompt focuses Branches, then Changes
 - `space` marks/unmarks files (`[x]`); if none are marked, stage uses the highlighted file
 - `s` stages marked files: `git add -- <files>`
 - `/` filters the file list by path (prompt mode `filter`; no git)
-- `c` commits **all** working-tree changes: `git add -A && git commit -m "<message>"` (confirm)
+- `c` or `i` returns to the **commit message** (the default focus when ckout starts). `enter` submits `git add -A && git commit -m "<message>"` (confirm)
 
 ### Diff (opt-in)
 
@@ -101,7 +102,7 @@ Diff is not shown on the home screen.
 
 ### Command transparency
 
-- The prompt line shows the git command for the current mode (checkout, commit, or filter)
+- Starts focused on the **commit message**. `tab` moves to branches, then files (for diffs); `shift+tab` goes the other way. `esc` from the prompt also focuses the file list without clearing the message.
 - Confirm overlays (`Y` / `n`; Enter does not confirm) are used for **commit**, **push**, **merge**, and **remote checkout**
 - The overlay includes the **working directory** (repo root)
 
@@ -109,37 +110,37 @@ ckout runs `git` with explicit argv (no shell). It does not use a high-level git
 
 ## Keyboard reference
 
-Idle (not typing, not in the diff pager):
+Focus starts on the commit message. Lists are idle until you `tab` (or `esc`) to them:
 
-| Key       | Action                                          |
-| --------- | ----------------------------------------------- |
-| `tab`     | Switch Branches ↔ Changes                       |
-| `↑` `↓`   | Move in the active list                         |
-| `enter`   | Checkout highlighted branch, or open file diff  |
-| `n`       | New / checkout branch (prompt)                  |
-| `c`       | Commit all (prompt, then confirm)               |
-| `i`       | Type in the current prompt mode                 |
-| printable | Start typing (same as `i` with that character)  |
-| `/`       | Filter files                                    |
-| `f`       | Fetch                                           |
-| `u`       | Pull                                            |
-| `p`       | Push (confirm)                                  |
-| `s`       | Stage marked (or highlighted) files             |
-| `m`       | Merge highlighted branch into current (confirm) |
-| `d`       | Full-screen diff of the highlighted file        |
-| `e`       | Open highlighted file (or patch) in editor      |
-| `space`   | Mark/unmark a file (focuses Changes)            |
-| `esc`     | Clear prompt text / errors                      |
-| `ctrl+c`  | Quit                                            |
+| Key         | Action                                          |
+| ----------- | ----------------------------------------------- |
+| `tab`       | Prompt → Branches → Changes → prompt            |
+| `shift+tab` | Reverse that cycle                              |
+| `↑` `↓`     | Move in the active list                         |
+| `enter`     | Checkout highlighted branch, or open file diff  |
+| `n`         | New / checkout branch (prompt)                  |
+| `c` / `i`   | Focus the commit message (keeps typed text)     |
+| `/`         | Filter files                                    |
+| `f`         | Fetch                                           |
+| `u`         | Pull (or unstage when Changes is focused)       |
+| `p`         | Push (confirm)                                  |
+| `s`         | Stage marked (or highlighted) files             |
+| `m`         | Merge highlighted branch into current (confirm) |
+| `d`         | Full-screen diff of the highlighted file        |
+| `e`         | Open highlighted file (or patch) in editor      |
+| `space`     | Mark/unmark a file (focuses Changes)            |
+| `esc`       | From a list: back to the commit prompt          |
+| `ctrl+c`    | Quit                                            |
 
 While typing in the prompt:
 
-| Key     | Action                                  |
-| ------- | --------------------------------------- |
-| `enter` | Submit (commit / checkout / filter)     |
-| `↑` `↓` | Prompt history                          |
-| `tab`   | Cycle modes: checkout → commit → filter |
-| `esc`   | Leave the prompt without running git    |
+| Key         | Action                              |
+| ----------- | ----------------------------------- |
+| `enter`     | Submit (commit / checkout / filter) |
+| `↑` `↓`     | Prompt history                      |
+| `tab`       | Focus Branches (keep the message)   |
+| `shift+tab` | Focus Changes                       |
+| `esc`       | Focus Changes (keep the message)    |
 
 Full-screen diff:
 

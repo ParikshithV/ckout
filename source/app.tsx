@@ -4,7 +4,7 @@ import {Box, Text, useApp, useStdout} from 'ink';
 import {Alert, Spinner, StatusMessage} from '@inkjs/ui';
 import Overview from './components/overview.js';
 import ConfirmCommand from './components/confirm-command.js';
-import DiffView, {diffLines} from './components/diff-view.js';
+import DiffView, {displayDiffLines} from './components/diff-view.js';
 import PromptBar from './components/prompt-bar.js';
 import Footer from './components/footer.js';
 import {
@@ -15,20 +15,33 @@ import {
 } from './git/commands.js';
 import {formatCommand} from './git/format-command.js';
 import {parseBranches, type GitBranch} from './git/parse-branches.js';
-import {parseStatus, type RepoStatus} from './git/parse-status.js';
+import {
+	type ChangedFile,
+	parseStatus,
+	type RepoStatus,
+} from './git/parse-status.js';
 import {resolveRepoRoot, runGit, runGitPipeline} from './git/run.js';
 import {openChangeInEditor} from './editor.js';
 import {useStableInput} from './hooks/use-stable-input.js';
-import {isPrintable, nextPromptMode} from './prompt.js';
+import {
+	deleteBeforeCursor,
+	deleteToStart,
+	deleteWordBeforeCursor,
+	insertAtCursor,
+	isBackwardDeleteKey,
+	isPrintable,
+	textLength,
+} from './prompt.js';
 import {
 	type ActiveList,
 	type LastCommand,
 	type PendingCommand,
 	type PromptMode,
 } from './types.js';
+import {sanitizeSingleLine, sanitizeText} from './lib/sanitize.js';
 
 function repoLabel(repoPath: string): string {
-	return path.basename(repoPath);
+	return sanitizeSingleLine(path.basename(repoPath));
 }
 
 function moveIndex(current: number, delta: number, length: number): number {
@@ -43,7 +56,7 @@ async function loadStatus(
 	cwd: string,
 	signal: AbortSignal,
 ): Promise<RepoStatus> {
-	const result = await runGit(cwd, ['status', '--porcelain=v1', '-b'], {
+	const result = await runGit(cwd, ['status', '--porcelain=v1', '-z', '-b'], {
 		signal,
 	});
 	if (result.code !== 0) {
@@ -67,9 +80,7 @@ async function loadBranches(
 
 async function loadDiff(
 	cwd: string,
-	file:
-		| {path: string; untracked: boolean; staged: boolean; unstaged: boolean}
-		| undefined,
+	file: ChangedFile | undefined,
 	signal: AbortSignal,
 ): Promise<string> {
 	if (!file) {
@@ -77,26 +88,87 @@ async function loadDiff(
 	}
 
 	if (file.untracked) {
+		const result = await runGit(
+			cwd,
+			['diff', '--no-index', '--', '/dev/null', file.path],
+			{signal},
+		);
+		if (result.code !== 0 && result.code !== 1) {
+			throw new Error(
+				result.stderr || `git diff exited with code ${result.code}`,
+			);
+		}
+
+		if (result.stdout.trim().length > 0) {
+			return result.stdout;
+		}
+
 		return `(untracked) ${file.path}`;
 	}
 
-	const args = file.unstaged
-		? ['diff', '--', file.path]
-		: ['diff', '--cached', '--', file.path];
+	if (file.staged && file.unstaged) {
+		const [cachedResult, unstagedResult] = await Promise.all([
+			runGit(cwd, ['diff', '--cached', '--', file.path], {signal}),
+			runGit(cwd, ['diff', '--', file.path], {signal}),
+		]);
+		for (const result of [cachedResult, unstagedResult]) {
+			if (result.code !== 0) {
+				throw new Error(
+					result.stderr || `git diff exited with code ${result.code}`,
+				);
+			}
+		}
+
+		const parts: string[] = [];
+		if (cachedResult.stdout.trim().length > 0) {
+			parts.push(
+				`--- Staged changes (cached) ---\n${cachedResult.stdout.trim()}`,
+			);
+		}
+
+		if (unstagedResult.stdout.trim().length > 0) {
+			parts.push(
+				`--- Unstaged changes (worktree) ---\n${unstagedResult.stdout.trim()}`,
+			);
+		}
+
+		return parts.join('\n\n') || '(empty diff)';
+	}
+
+	const args = file.staged
+		? ['diff', '--cached', '--', file.path]
+		: ['diff', '--', file.path];
 	const result = await runGit(cwd, args, {signal});
+	if (result.code !== 0 && result.code !== 1) {
+		throw new Error(
+			result.stderr || `git diff exited with code ${result.code}`,
+		);
+	}
+
 	return result.stdout || result.stderr || '(empty diff)';
 }
+
+type DiffState = {
+	filePath: string;
+	text: string;
+	loading: boolean;
+	error?: string;
+};
 
 export default function App() {
 	const {exit} = useApp();
 	const {stdout} = useStdout();
-	const [promptMode, setPromptMode] = useState<PromptMode>('checkout');
-	const [activeList, setActiveList] = useState<ActiveList>('branches');
-	const [insertMode, setInsertMode] = useState(false);
+	const [promptMode, setPromptMode] = useState<PromptMode>('commit');
+	const [activeList, setActiveList] = useState<ActiveList>('files');
+	const [insertMode, setInsertMode] = useState(true);
 	const [prompt, setPrompt] = useState('');
+	const [cursorPos, setCursorPos] = useState(0);
+	const [promptError, setPromptError] = useState<string | undefined>();
+	const [filterQuery, setFilterQuery] = useState('');
 	const [history, setHistory] = useState<string[]>([]);
-	const insertModeRef = useRef(false);
+	const insertModeRef = useRef(true);
 	const promptRef = useRef('');
+	const cursorPosRef = useRef(0);
 	const historyRef = useRef<string[]>([]);
 	const historyIndexRef = useRef(-1);
 	historyRef.current = history;
@@ -106,29 +178,46 @@ export default function App() {
 	const [branchIndex, setBranchIndex] = useState(0);
 	const [fileIndex, setFileIndex] = useState(0);
 	const [marked, setMarked] = useState<string[]>([]);
-	const [diff, setDiff] = useState('');
+	const [diffState, setDiffState] = useState<DiffState>({
+		filePath: '',
+		text: '',
+		loading: false,
+	});
 	const [diffOffset, setDiffOffset] = useState(0);
+	const [diffHorizontalOffset, setDiffHorizontalOffset] = useState(0);
+	const [diffWrapMode, setDiffWrapMode] = useState<'truncate' | 'wrap'>(
+		'truncate',
+	);
 	const [diffOpen, setDiffOpen] = useState(false);
 	const [error, setError] = useState<string | undefined>();
+	const [notice, setNotice] = useState<string | undefined>();
 	const [pending, setPending] = useState<PendingCommand | undefined>();
 	const [busy, setBusy] = useState(false);
+	const [isEditorActive, setIsEditorActive] = useState(false);
 	const [lastCommand, setLastCommand] = useState<LastCommand | undefined>();
 	const [reloadTick, setReloadTick] = useState(0);
+	const diffPathRef = useRef('');
+
+	const activeFilter =
+		insertMode && promptMode === 'filter' ? prompt.trim() : filterQuery;
 
 	const files = useMemo(() => {
 		const all = status?.files ?? [];
-		if (promptMode !== 'filter' || prompt.trim().length === 0) {
+		if (activeFilter.length === 0) {
 			return all;
 		}
 
-		const needle = prompt.trim().toLowerCase();
+		const needle = activeFilter.toLowerCase();
 		return all.filter(file => file.path.toLowerCase().includes(needle));
-	}, [prompt, promptMode, status?.files]);
+	}, [activeFilter, status?.files]);
 
 	const focusedPath = files[fileIndex]?.path;
 	const selectedBranch = branches[branchIndex];
+	const visibleMarked = marked.filter(item =>
+		files.some(file => file.path === item),
+	);
 	const markedOrFocused =
-		marked.length > 0 ? marked : focusedPath ? [focusedPath] : [];
+		visibleMarked.length > 0 ? visibleMarked : focusedPath ? [focusedPath] : [];
 
 	const changeActions = useMemo(
 		() =>
@@ -193,7 +282,7 @@ export default function App() {
 	}, []);
 
 	useEffect(() => {
-		if (!repoPath) {
+		if (!repoPath || isEditorActive) {
 			return;
 		}
 
@@ -223,22 +312,26 @@ export default function App() {
 		return () => {
 			controller.abort();
 		};
-	}, [repoPath, reloadTick]);
+	}, [repoPath, reloadTick, isEditorActive]);
 
 	useEffect(() => {
 		setFileIndex(0);
 		setDiffOffset(0);
+		setDiffHorizontalOffset(0);
 		setMarked([]);
 		setDiffOpen(false);
 		setActiveList('branches');
+		setFilterQuery('');
 	}, [repoPath]);
 
 	useEffect(() => {
 		const current = branches.findIndex(branch => branch.current);
 		if (current >= 0) {
 			setBranchIndex(current);
+		} else if (branchIndex >= branches.length && branches.length > 0) {
+			setBranchIndex(branches.length - 1);
 		}
-	}, [repoPath, status?.branch]);
+	}, [repoPath, status?.branch, branches.length]);
 
 	useEffect(() => {
 		if (files.length === 0) {
@@ -252,7 +345,7 @@ export default function App() {
 	}, [fileIndex, files.length]);
 
 	useEffect(() => {
-		if (!repoPath) {
+		if (!repoPath || isEditorActive) {
 			return;
 		}
 
@@ -263,11 +356,23 @@ export default function App() {
 		return () => {
 			clearInterval(timer);
 		};
-	}, [repoPath]);
+	}, [repoPath, isEditorActive]);
 
 	useEffect(() => {
-		if (!diffOpen || !repoPath || !status) {
+		if (!diffOpen || !repoPath || !status || !focusedPath) {
 			return;
+		}
+
+		const pathChanged = diffPathRef.current !== focusedPath;
+		diffPathRef.current = focusedPath;
+		setDiffState(current => ({
+			filePath: focusedPath,
+			text: pathChanged ? '' : current.text,
+			loading: pathChanged,
+		}));
+		if (pathChanged) {
+			setDiffOffset(0);
+			setDiffHorizontalOffset(0);
 		}
 
 		const file = status.files.find(item => item.path === focusedPath);
@@ -276,13 +381,21 @@ export default function App() {
 		loadDiff(repoPath, file, controller.signal)
 			.then(text => {
 				if (!controller.signal.aborted) {
-					setDiff(text);
-					setDiffOffset(0);
+					setDiffState({
+						filePath: focusedPath,
+						text,
+						loading: false,
+					});
 				}
 			})
 			.catch((caught: unknown) => {
 				if (!controller.signal.aborted) {
-					setDiff(caught instanceof Error ? caught.message : String(caught));
+					setDiffState({
+						filePath: focusedPath,
+						text: '',
+						loading: false,
+						error: caught instanceof Error ? caught.message : String(caught),
+					});
 				}
 			});
 
@@ -295,23 +408,38 @@ export default function App() {
 		setBusy(true);
 		setPending(undefined);
 		setLastCommand(undefined);
+		setNotice(undefined);
 		try {
 			const result = await runGitPipeline(command.cwd, command.steps);
 			setLastCommand({
 				ok: result.code === 0,
-				command: command.display,
-				detail: (
-					result.stderr ||
-					result.stdout ||
-					`exit ${result.code}`
-				).trim(),
+				command: sanitizeSingleLine(command.display),
+				detail: sanitizeSingleLine(
+					(result.stderr || result.stdout || `exit ${result.code}`).trim(),
+				),
 			});
 			setReloadTick(tick => tick + 1);
+			if (command.title === 'Commit all') {
+				if (result.code === 0) {
+					insertModeRef.current = true;
+					promptRef.current = '';
+					cursorPosRef.current = 0;
+					setInsertMode(true);
+					setPrompt('');
+					setCursorPos(0);
+					setPromptMode('commit');
+				} else {
+					insertModeRef.current = true;
+					setInsertMode(true);
+				}
+			}
 		} catch (caught: unknown) {
 			setLastCommand({
 				ok: false,
-				command: command.display,
-				detail: caught instanceof Error ? caught.message : String(caught),
+				command: sanitizeSingleLine(command.display),
+				detail: sanitizeSingleLine(
+					caught instanceof Error ? caught.message : String(caught),
+				),
 			});
 		} finally {
 			setBusy(false);
@@ -347,22 +475,47 @@ export default function App() {
 	const exitInsert = useCallback(() => {
 		insertModeRef.current = false;
 		promptRef.current = '';
+		cursorPosRef.current = 0;
 		historyIndexRef.current = -1;
 		setInsertMode(false);
 		setPrompt('');
+		setCursorPos(0);
+		setPromptError(undefined);
+	}, []);
+
+	const resumeInsert = useCallback(() => {
+		insertModeRef.current = true;
+		setInsertMode(true);
+		setPromptError(undefined);
+	}, []);
+
+	const blurInsert = useCallback((list: ActiveList) => {
+		insertModeRef.current = false;
+		setInsertMode(false);
+		setActiveList(list);
+		setPromptError(undefined);
 	}, []);
 
 	const enterInsert = useCallback((seed = '') => {
 		insertModeRef.current = true;
 		promptRef.current = seed;
+		cursorPosRef.current = textLength(seed);
 		historyIndexRef.current = -1;
 		setInsertMode(true);
 		setPrompt(seed);
+		setCursorPos(textLength(seed));
+		setPromptError(undefined);
 	}, []);
 
-	const setPromptValue = useCallback((value: string) => {
+	const setPromptValue = useCallback((value: string, cursor?: number) => {
 		promptRef.current = value;
+		const length = textLength(value);
+		const nextCursor =
+			cursor === undefined ? length : Math.max(0, Math.min(length, cursor));
+		cursorPosRef.current = nextCursor;
 		setPrompt(value);
+		setCursorPos(nextCursor);
+		setPromptError(undefined);
 	}, []);
 
 	const runActionId = useCallback(
@@ -372,7 +525,17 @@ export default function App() {
 			}
 
 			const action = changeActions.find(item => item.id === id);
-			if (!action || action.disabled) {
+			if (!action) {
+				return;
+			}
+
+			if (action.disabled) {
+				if (id === 'stage') {
+					setNotice('No changed files to stage');
+				} else if (id === 'unstage') {
+					setNotice('No staged files to unstage');
+				}
+
 				return;
 			}
 
@@ -382,7 +545,12 @@ export default function App() {
 	);
 
 	const checkoutSelected = useCallback(() => {
-		if (!repoPath || !selectedBranch || selectedBranch.current) {
+		if (!repoPath || !selectedBranch) {
+			return;
+		}
+
+		if (selectedBranch.current) {
+			setNotice(`Already on branch '${selectedBranch.name}'`);
 			return;
 		}
 
@@ -391,37 +559,75 @@ export default function App() {
 
 	const openEditor = useCallback(() => {
 		if (!repoPath || !focusedPath) {
+			setNotice('No file selected to open');
 			return;
 		}
 
 		const file = status?.files.find(item => item.path === focusedPath);
+		setIsEditorActive(true);
 		void (async () => {
 			const text =
-				diff.length > 0
-					? diff
+				diffState.filePath === focusedPath && !diffState.loading
+					? diffState.text
 					: await loadDiff(repoPath, file, new AbortController().signal);
-			await openChangeInEditor({
-				repoPath,
-				relativePath: focusedPath,
-				diff: text,
+
+			await openChangeInEditor(
+				{
+					repoPath,
+					relativePath: focusedPath,
+					diff: text,
+				},
+				{
+					onBeforeSpawn() {
+						if (process.stdin.isTTY && process.stdin.setRawMode) {
+							process.stdin.setRawMode(false);
+						}
+
+						stdout.write('\u001B[2J\u001B[3J\u001B[H');
+					},
+					onAfterExit() {
+						if (process.stdin.isTTY && process.stdin.setRawMode) {
+							process.stdin.setRawMode(true);
+						}
+
+						stdout.write('\u001B[2J\u001B[3J\u001B[H');
+					},
+				},
+			);
+			setReloadTick(tick => tick + 1);
+		})()
+			.catch((caught: unknown) => {
+				setError(caught instanceof Error ? caught.message : String(caught));
+			})
+			.finally(() => {
+				setIsEditorActive(false);
 			});
-		})().catch((caught: unknown) => {
-			setError(caught instanceof Error ? caught.message : String(caught));
-		});
-	}, [diff, focusedPath, repoPath, status?.files]);
+	}, [diffState, focusedPath, repoPath, status?.files, stdout]);
+
+	const rawTerminalRows = (stdout.rows ?? 24) - 1;
+	const rawTerminalCols = stdout.columns ?? 80;
+	const terminalRows = Math.max(8, rawTerminalRows);
+	const terminalCols = Math.max(20, rawTerminalCols);
+	const fullDiffRows = Math.max(3, terminalRows - 6);
 
 	const scrollDiff = useCallback(
 		(delta: number) => {
-			const total = diffLines(diff).length;
+			const total = displayDiffLines(
+				diffState.text,
+				diffWrapMode,
+				Math.max(1, terminalCols - 4),
+			).length;
+			const maxOffset = Math.max(0, total - fullDiffRows);
 			setDiffOffset(current =>
-				Math.max(0, Math.min(Math.max(0, total - 1), current + delta)),
+				Math.max(0, Math.min(maxOffset, current + delta)),
 			);
 		},
-		[diff],
+		[diffState.text, diffWrapMode, fullDiffRows, terminalCols],
 	);
 
 	const openFullDiff = useCallback(() => {
 		if (!focusedPath) {
+			setNotice('No file selected to view diff');
 			return;
 		}
 
@@ -437,7 +643,13 @@ export default function App() {
 			rememberPrompt(value);
 
 			if (promptMode === 'filter') {
-				exitInsert();
+				setFilterQuery(trimmed);
+				setMarked([]);
+				setActiveList('files');
+				setFileIndex(0);
+				insertModeRef.current = false;
+				setInsertMode(false);
+				setPrompt(trimmed);
 				return;
 			}
 
@@ -446,42 +658,60 @@ export default function App() {
 			}
 
 			if (promptMode === 'commit') {
+				if (trimmed.length === 0) {
+					setPromptError('Commit message cannot be empty');
+					return;
+				}
+
 				const action = buildChangeActions({
 					markedFiles: markedOrFocused,
 					commitMessage: trimmed,
 					fileCount: status?.files.length ?? 0,
 				})[0];
-				if (action && !action.disabled) {
-					onRequest(requestFromAction(repoPath, action));
+				if (!action || action.disabled) {
+					setPromptError('Nothing to commit');
+					return;
 				}
 
-				exitInsert();
+				onRequest(requestFromAction(repoPath, action));
 				return;
 			}
 
 			if (promptMode === 'checkout') {
-				const name = trimmed || selectedBranch?.name;
-				if (!name) {
-					return;
+				if (trimmed.length > 0) {
+					const exists = branches.some(
+						branch => !branch.remote && branch.name === trimmed,
+					);
+					onRequest({
+						title: exists ? 'Checkout' : 'Create and checkout',
+						cwd: repoPath,
+						display: exists
+							? formatCommand(['checkout', trimmed])
+							: formatCommand(['checkout', '-b', trimmed]),
+						steps: exists
+							? [['checkout', trimmed]]
+							: [['checkout', '-b', trimmed]],
+						confirm: false,
+					});
+				} else if (selectedBranch) {
+					if (selectedBranch.current) {
+						setNotice(`Already on branch '${selectedBranch.name}'`);
+						setPromptMode('commit');
+						enterInsert();
+						return;
+					}
+
+					onRequest(checkoutPending(repoPath, selectedBranch));
 				}
 
-				const exists = branches.some(
-					branch => !branch.remote && branch.name === name,
-				);
-				onRequest({
-					title: exists ? 'Checkout' : 'Create and checkout',
-					cwd: repoPath,
-					display: exists
-						? formatCommand(['checkout', name])
-						: formatCommand(['checkout', '-b', name]),
-					steps: exists ? [['checkout', name]] : [['checkout', '-b', name]],
-					confirm: false,
-				});
 				exitInsert();
+				setPromptMode('commit');
+				enterInsert();
 			}
 		},
 		[
 			branches,
+			enterInsert,
 			exitInsert,
 			markedOrFocused,
 			onRequest,
@@ -501,13 +731,17 @@ export default function App() {
 
 		if (pending) {
 			if (key.escape) {
+				const title = pending.title;
 				setPending(undefined);
+				if (title === 'Commit all') {
+					resumeInsert();
+				}
 			}
 
 			return;
 		}
 
-		if (busy) {
+		if (busy || isEditorActive) {
 			return;
 		}
 
@@ -522,13 +756,27 @@ export default function App() {
 				stdout.write('\u001B[2J\u001B[3J\u001B[H');
 				setDiffOpen(false);
 				setPromptMode('commit');
-				setActiveList('files');
-				enterInsert();
+				resumeInsert();
 				return;
 			}
 
 			if (input === 'e') {
 				openEditor();
+				return;
+			}
+
+			if (input === 'w') {
+				setDiffWrapMode(mode => (mode === 'truncate' ? 'wrap' : 'truncate'));
+				return;
+			}
+
+			if (input === 'h' || (key.leftArrow && key.shift)) {
+				setDiffHorizontalOffset(offset => Math.max(0, offset - 10));
+				return;
+			}
+
+			if (input === 'l' || (key.rightArrow && key.shift)) {
+				setDiffHorizontalOffset(offset => offset + 10);
 				return;
 			}
 
@@ -557,24 +805,86 @@ export default function App() {
 			return;
 		}
 
-		if (key.tab && !key.shift) {
+		if (key.tab) {
 			if (insertModeRef.current) {
-				setPromptMode(current => nextPromptMode(current));
+				blurInsert(key.shift ? 'files' : 'branches');
 				return;
 			}
 
-			setActiveList(current => (current === 'branches' ? 'files' : 'branches'));
+			if (key.shift) {
+				if (activeList === 'files') {
+					setActiveList('branches');
+					return;
+				}
+
+				resumeInsert();
+				return;
+			}
+
+			if (activeList === 'branches') {
+				setActiveList('files');
+				return;
+			}
+
+			resumeInsert();
 			return;
 		}
 
 		if (insertModeRef.current) {
 			if (key.escape) {
-				exitInsert();
+				blurInsert('files');
 				return;
 			}
 
 			if (key.return) {
 				submitPrompt(promptRef.current);
+				return;
+			}
+
+			if (key.leftArrow) {
+				setCursorPos(pos => Math.max(0, pos - 1));
+				cursorPosRef.current = Math.max(0, cursorPosRef.current - 1);
+				return;
+			}
+
+			if (key.rightArrow) {
+				const nextPos = Math.min(
+					textLength(promptRef.current),
+					cursorPosRef.current + 1,
+				);
+				setCursorPos(nextPos);
+				cursorPosRef.current = nextPos;
+				return;
+			}
+
+			if (key.ctrl && input === 'a') {
+				setCursorPos(0);
+				cursorPosRef.current = 0;
+				return;
+			}
+
+			if (key.ctrl && input === 'e') {
+				const end = textLength(promptRef.current);
+				setCursorPos(end);
+				cursorPosRef.current = end;
+				return;
+			}
+
+			if (key.ctrl && input === 'u') {
+				const {value, cursor} = deleteToStart(
+					promptRef.current,
+					cursorPosRef.current,
+				);
+				setPromptValue(value, cursor);
+				return;
+			}
+
+			if (key.ctrl && input === 'w') {
+				const {value, cursor} = deleteWordBeforeCursor(
+					promptRef.current,
+					cursorPosRef.current,
+				);
+				setPromptValue(value, cursor);
 				return;
 			}
 
@@ -584,7 +894,8 @@ export default function App() {
 					historyIndexRef.current + 1,
 				);
 				historyIndexRef.current = next;
-				setPromptValue(historyRef.current[next] ?? '');
+				const item = historyRef.current[next] ?? '';
+				setPromptValue(item, textLength(item));
 				return;
 			}
 
@@ -592,38 +903,50 @@ export default function App() {
 				const next = historyIndexRef.current - 1;
 				if (next < 0) {
 					historyIndexRef.current = -1;
-					setPromptValue('');
+					setPromptValue('', 0);
 					return;
 				}
 
 				historyIndexRef.current = next;
-				setPromptValue(historyRef.current[next] ?? '');
+				const item = historyRef.current[next] ?? '';
+				setPromptValue(item, textLength(item));
 				return;
 			}
 
-			if (key.backspace || key.delete) {
-				setPromptValue(promptRef.current.slice(0, -1));
+			// Ink 5 reports the common DEL byte (0x7f) as `delete`, even when
+			// terminals send it for Backspace. Treat both names as backward delete.
+			if (isBackwardDeleteKey(key)) {
+				const {value, cursor} = deleteBeforeCursor(
+					promptRef.current,
+					cursorPosRef.current,
+				);
+				setPromptValue(value, cursor);
 				return;
 			}
 
 			if (isPrintable(input, key)) {
-				setPromptValue(promptRef.current + input);
+				const {value, cursor} = insertAtCursor(
+					promptRef.current,
+					cursorPosRef.current,
+					input,
+				);
+				setPromptValue(value, cursor);
 			}
 
 			return;
 		}
 
 		if (key.escape) {
-			setPrompt('');
+			resumeInsert();
 			setError(undefined);
+			setNotice(undefined);
 			setDiffOpen(false);
 			return;
 		}
 
 		if (input === 'c') {
 			setPromptMode('commit');
-			setActiveList('files');
-			enterInsert();
+			resumeInsert();
 			return;
 		}
 
@@ -637,7 +960,7 @@ export default function App() {
 		if (input === '/') {
 			setPromptMode('filter');
 			setActiveList('files');
-			enterInsert();
+			enterInsert(filterQuery);
 			return;
 		}
 
@@ -647,7 +970,12 @@ export default function App() {
 		}
 
 		if (input === 'u') {
-			runActionId('pull');
+			if (activeList === 'files') {
+				runActionId('unstage');
+			} else {
+				runActionId('pull');
+			}
+
 			return;
 		}
 
@@ -661,20 +989,33 @@ export default function App() {
 			return;
 		}
 
-		if (input === 'm' && selectedBranch && repoPath) {
-			const ref = branchRef(selectedBranch);
-			onRequest({
-				title: 'Merge into current',
-				cwd: repoPath,
-				display: formatCommand(['merge', ref]),
-				steps: [['merge', ref]],
-				confirm: true,
-			});
+		if (input === 'm') {
+			if (!selectedBranch) {
+				setNotice('No branch selected to merge');
+				return;
+			}
+
+			if (selectedBranch.current) {
+				setNotice('Cannot merge current branch into itself');
+				return;
+			}
+
+			if (repoPath) {
+				const ref = branchRef(selectedBranch);
+				onRequest({
+					title: `Merge ${selectedBranch.name} into current`,
+					cwd: repoPath,
+					display: formatCommand(['merge', ref]),
+					steps: [['merge', ref]],
+					confirm: true,
+				});
+			}
+
 			return;
 		}
 
 		if (input === 'i') {
-			enterInsert();
+			resumeInsert();
 			return;
 		}
 
@@ -716,25 +1057,39 @@ export default function App() {
 			}
 
 			setBranchIndex(index => moveIndex(index, delta, branches.length));
-			return;
 		}
+	}, !pending && !busy && !isEditorActive);
 
-		if (isPrintable(input, key) && input !== ' ') {
-			enterInsert(input);
-		}
-	}, true);
+	if (rawTerminalRows < 8 || rawTerminalCols < 20) {
+		return (
+			<Box flexDirection="column" padding={1}>
+				<Text color="yellow">
+					Terminal size ({rawTerminalCols}x{rawTerminalRows}) is too small for
+					ckout.
+				</Text>
+			</Box>
+		);
+	}
 
-	const cwd = repoPath ?? process.cwd();
-	const terminalRows = Math.max(12, (stdout.rows ?? 24) - 1);
-	const fullDiffRows = Math.max(8, terminalRows - 3);
+	const rawCwd = repoPath ?? process.cwd();
+	const sanitizedCwd = sanitizeSingleLine(rawCwd);
+	const cwdDisplay =
+		sanitizedCwd.length > terminalCols - 8
+			? '...' + sanitizedCwd.slice(-(terminalCols - 12))
+			: sanitizedCwd;
 
 	if (diffOpen) {
 		return (
 			<Box flexDirection="column" width="100%" height={terminalRows}>
 				<DiffView
 					filePath={focusedPath}
-					diff={diff}
+					diff={diffState.text}
+					loading={diffState.loading}
+					error={diffState.error}
 					offset={diffOffset}
+					horizontalOffset={diffHorizontalOffset}
+					wrapMode={diffWrapMode}
+					contentWidth={Math.max(1, terminalCols - 4)}
 					visibleCount={fullDiffRows}
 					fullscreen
 				/>
@@ -742,6 +1097,8 @@ export default function App() {
 			</Box>
 		);
 	}
+
+	const listHeight = Math.max(3, Math.min(20, terminalRows - 13));
 
 	return (
 		<Box flexDirection="column" width="100%" height={terminalRows}>
@@ -751,10 +1108,13 @@ export default function App() {
 				</Text>
 				<Text>{repoPath ? repoLabel(repoPath) : 'no repo'}</Text>
 				<Text dimColor>
-					{activeList} · {promptMode}
+					{insertMode ? 'prompt' : activeList} · {promptMode}
 				</Text>
 			</Box>
-			{error ? <Alert variant="error">{error}</Alert> : undefined}
+			{error ? <Alert variant="error">{sanitizeText(error)}</Alert> : undefined}
+			{notice ? (
+				<Alert variant="info">{sanitizeText(notice)}</Alert>
+			) : undefined}
 			{lastCommand ? (
 				<StatusMessage variant={lastCommand.ok ? 'success' : 'error'}>
 					{lastCommand.command}
@@ -763,15 +1123,18 @@ export default function App() {
 			) : undefined}
 			<Box flexGrow={1}>
 				<Overview
-					status={status ? {...status, files} : undefined}
+					status={status}
 					branches={branches}
 					branchIndex={branchIndex}
 					files={files}
 					focusedPath={focusedPath}
-					marked={marked}
+					marked={visibleMarked}
 					activeList={activeList}
+					listsActive={!insertMode}
 					isBusy={busy}
-					listHeight={Math.max(8, terminalRows - 14)}
+					listHeight={listHeight}
+					filterQuery={activeFilter}
+					terminalCols={terminalCols}
 				/>
 			</Box>
 			{busy ? (
@@ -789,6 +1152,9 @@ export default function App() {
 					}}
 					onCancel={() => {
 						setPending(undefined);
+						if (pending.title === 'Commit all') {
+							resumeInsert();
+						}
 					}}
 				/>
 			) : (
@@ -797,6 +1163,8 @@ export default function App() {
 					commandHint={commandHint}
 					insertMode={insertMode}
 					value={prompt}
+					cursorPos={cursorPos}
+					error={promptError}
 				/>
 			)}
 			<Footer
@@ -804,7 +1172,7 @@ export default function App() {
 				diffOpen={diffOpen}
 				activeList={activeList}
 			/>
-			<Text dimColor> cwd {cwd}</Text>
+			<Text dimColor> cwd {cwdDisplay}</Text>
 		</Box>
 	);
 }

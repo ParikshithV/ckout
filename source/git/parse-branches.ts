@@ -5,7 +5,12 @@ export type GitBranch = {
 };
 
 function isRemoteHead(name: string): boolean {
-	return name.endsWith('/HEAD') || name === 'HEAD';
+	return (
+		name.endsWith('/HEAD') ||
+		name === 'HEAD' ||
+		name.includes('/HEAD -> ') ||
+		name.includes(' -> ')
+	);
 }
 
 export function remoteTrackingShortName(name: string): string {
@@ -39,8 +44,15 @@ export function parseBranches(output: string): GitBranch[] {
 		}
 
 		const current = line.startsWith('* ');
-		const name = (current ? line.slice(2) : line).trim();
-		if (name.length === 0 || name.includes('HEAD detached') || seen.has(name)) {
+		const isWorktree = line.startsWith('+ ');
+		const name = (current || isWorktree ? line.slice(2) : line).trim();
+		if (
+			name.length === 0 ||
+			name.includes('HEAD detached') ||
+			name.includes(' -> ') ||
+			isRemoteHead(name) ||
+			seen.has(name)
+		) {
 			continue;
 		}
 

@@ -13,17 +13,19 @@ export default function Footer({
 	activeList = 'branches',
 }: Props) {
 	let hints =
-		'↑↓ move  tab files/branches  enter checkout  n new  c commit  f/u/p fetch/pull/push';
+		'↑↓ move · enter checkout · n new · m merge · f fetch · u pull · p push · tab files · i/c message · ctrl+c quit';
 
 	if (activeList === 'files') {
 		hints =
-			'↑↓ files  enter/d diff  e editor  space mark  tab branches  c commit  ctrl+c quit';
+			'↑↓ move · enter/d diff · e editor · space mark · s stage · u unstage · tab message · c commit · / filter · ctrl+c quit';
 	}
 
 	if (insertMode) {
-		hints = 'enter submit  ↑↓ history  tab mode  esc leave prompt';
+		hints =
+			'enter commit · tab branches · shift+tab files · esc lists · ctrl+c quit';
 	} else if (diffOpen) {
-		hints = '↑↓ scroll  ←→ file  e editor  c commit  esc back';
+		hints =
+			'↑↓ scroll · h/l pan · w wrap · ←→ file · e editor · c commit · esc back';
 	}
 
 	return (

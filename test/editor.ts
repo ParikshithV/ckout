@@ -3,6 +3,7 @@ import {
 	editorAttempts,
 	isGuiEditor,
 	parseEditorCommand,
+	splitEditorCommand,
 } from '../source/editor.js';
 
 test('parseEditorCommand splits binary and args', t => {
@@ -11,6 +12,36 @@ test('parseEditorCommand splits binary and args', t => {
 		bin: 'code',
 		extraArgs: ['-g'],
 	});
+	t.deepEqual(parseEditorCommand('"my editor" --wait -n'), {
+		bin: 'my editor',
+		extraArgs: ['--wait', '-n'],
+	});
+});
+
+test('splitEditorCommand handles quotes and escapes', t => {
+	t.deepEqual(splitEditorCommand(''), []);
+	t.deepEqual(splitEditorCommand('editor "" --wait'), ['editor', '', '--wait']);
+	t.deepEqual(splitEditorCommand('vim -u NONE'), ['vim', '-u', 'NONE']);
+	t.deepEqual(splitEditorCommand(`'C:\\Program Files\\Editor' --wait`), [
+		'C:\\Program Files\\Editor',
+		'--wait',
+	]);
+	t.deepEqual(splitEditorCommand(`"my custom editor" "arg with spaces"`), [
+		'my custom editor',
+		'arg with spaces',
+	]);
+	t.deepEqual(splitEditorCommand('"C:\\Program Files\\Editor" --wait'), [
+		'C:\\Program Files\\Editor',
+		'--wait',
+	]);
+	t.deepEqual(splitEditorCommand('editor "say \\"hello\\""'), [
+		'editor',
+		'say "hello"',
+	]);
+	t.deepEqual(splitEditorCommand('editor trailing\\'), [
+		'editor',
+		'trailing\\',
+	]);
 });
 
 test('cursor and code are treated as GUI editors', t => {

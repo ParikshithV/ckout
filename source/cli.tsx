@@ -13,13 +13,13 @@ meow(
 	ckout: branches and changed files on one screen. Diff is opt-in.
 
 	Keys
-	  tab       Switch branches / files (prompt mode while typing)
-	  enter     Checkout the selected branch, or open a file diff
+	  tab       Prompt → branches → files (shift+tab reverse)
+	  enter     Commit from the prompt, or checkout / open a diff from a list
 	  n         New branch (prompt)
-	  c         Commit (prompt)
+	  c / i     Back to the commit message
 	  f / u / p Fetch / pull / push
 	  d / e     Full-screen diff / open in editor
-	  esc       Back / cancel
+	  esc       Lists ↔ prompt
 	  ctrl+c    Quit
 `,
 	{

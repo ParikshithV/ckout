@@ -39,3 +39,93 @@ export function isPrintable(
 
 	return true;
 }
+
+export function textLength(value: string): number {
+	return [...value].length;
+}
+
+export function isBackwardDeleteKey(key: {
+	backspace: boolean;
+	delete: boolean;
+}): boolean {
+	return key.backspace || key.delete;
+}
+
+export function insertAtCursor(
+	value: string,
+	cursor: number,
+	text: string,
+): {value: string; cursor: number} {
+	const characters = [...value];
+	const pos = Math.max(0, Math.min(characters.length, cursor));
+	characters.splice(pos, 0, ...text);
+	return {
+		value: characters.join(''),
+		cursor: pos + textLength(text),
+	};
+}
+
+export function deleteBeforeCursor(
+	value: string,
+	cursor: number,
+): {value: string; cursor: number} {
+	const characters = [...value];
+	const pos = Math.max(0, Math.min(characters.length, cursor));
+	if (pos === 0) {
+		return {value, cursor: 0};
+	}
+
+	return {
+		value: [...characters.slice(0, pos - 1), ...characters.slice(pos)].join(''),
+		cursor: pos - 1,
+	};
+}
+
+export function deleteAtCursor(
+	value: string,
+	cursor: number,
+): {value: string; cursor: number} {
+	const characters = [...value];
+	const pos = Math.max(0, Math.min(characters.length, cursor));
+	if (pos >= characters.length) {
+		return {value, cursor: pos};
+	}
+
+	return {
+		value: [...characters.slice(0, pos), ...characters.slice(pos + 1)].join(''),
+		cursor: pos,
+	};
+}
+
+export function deleteWordBeforeCursor(
+	value: string,
+	cursor: number,
+): {value: string; cursor: number} {
+	const characters = [...value];
+	const pos = Math.max(0, Math.min(characters.length, cursor));
+	if (pos === 0) {
+		return {value, cursor: 0};
+	}
+
+	const before = characters.slice(0, pos).join('');
+	const match = /\S+\s*$/.exec(before);
+	const deleteCount = match ? textLength(match[0]) : 1;
+	const newPos = Math.max(0, pos - deleteCount);
+
+	return {
+		value: [...characters.slice(0, newPos), ...characters.slice(pos)].join(''),
+		cursor: newPos,
+	};
+}
+
+export function deleteToStart(
+	value: string,
+	cursor: number,
+): {value: string; cursor: number} {
+	const characters = [...value];
+	const pos = Math.max(0, Math.min(characters.length, cursor));
+	return {
+		value: characters.slice(pos).join(''),
+		cursor: 0,
+	};
+}

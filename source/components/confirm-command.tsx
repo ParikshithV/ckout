@@ -1,6 +1,7 @@
 import React from 'react';
 import {Box, Text} from 'ink';
 import {Alert, ConfirmInput} from '@inkjs/ui';
+import {sanitizeSingleLine} from '../lib/sanitize.js';
 
 type Props = {
 	title: string;
@@ -17,6 +18,10 @@ export default function ConfirmCommand({
 	onConfirm,
 	onCancel,
 }: Props) {
+	const sanitizedTitle = sanitizeSingleLine(title);
+	const sanitizedCwd = sanitizeSingleLine(cwd);
+	const sanitizedCommand = sanitizeSingleLine(command);
+
 	return (
 		<Box
 			flexDirection="column"
@@ -25,11 +30,11 @@ export default function ConfirmCommand({
 			paddingX={1}
 			gap={1}
 		>
-			<Alert variant="warning" title={title}>
-				This will run in {cwd}
+			<Alert variant="warning" title={sanitizedTitle}>
+				This will run in {sanitizedCwd}
 			</Alert>
 			<Text>
-				Command: <Text color="cyan">{command}</Text>
+				Command: <Text color="cyan">{sanitizedCommand}</Text>
 			</Text>
 			<Box>
 				<Text>Run it? </Text>
