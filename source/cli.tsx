@@ -4,6 +4,7 @@ import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
 import App from './app.js';
+import {enterAppScreen, leaveAppScreen} from './lib/terminal.js';
 
 meow(
 	`
@@ -33,7 +34,23 @@ if (process.stdin.isTTY) {
 	process.stdin.resume();
 }
 
-render(<App />, {
+enterAppScreen(process.stdout);
+
+const ink = render(<App />, {
 	stdin: process.stdin,
 	stdout: process.stdout,
 });
+
+const dismissUi = (): void => {
+	try {
+		ink.clear();
+	} catch {
+		// Ink may already have unmounted.
+	}
+
+	leaveAppScreen(process.stdout);
+};
+
+process.once('exit', dismissUi);
+await ink.waitUntilExit();
+dismissUi();
