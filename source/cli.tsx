@@ -3,7 +3,7 @@ import process from 'node:process';
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
-import {loadSettings} from './ai/config.js';
+import {hasStoredConfig, loadSettings} from './ai/config.js';
 import {resolveRepoRoot, runGit} from './git/run.js';
 import {type Flags, type View} from './types.js';
 import Root from './ui/root.js';
@@ -90,12 +90,22 @@ const flags: Flags = {
 	message: cli.flags.message,
 };
 
+// First run: set up AI before the first commit card, unless the env already picks it.
+const firstRun =
+	view === 'commit' &&
+	!flags.yes &&
+	!flags.message &&
+	!process.env['CKOUT_AI_PROVIDER'] &&
+	!process.env['CKOUT_AI_COMMAND'] &&
+	!(await hasStoredConfig());
+
 const ink = render(
 	<Root
 		root={root ?? process.cwd()}
 		settings={await loadSettings()}
 		flags={flags}
-		initialView={view}
+		initialView={firstRun ? 'config' : view}
+		firstRun={firstRun}
 	/>,
 	{exitOnCtrlC: false},
 );

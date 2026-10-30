@@ -29,19 +29,29 @@ export type Field =
 			id: string;
 			kind: 'choice';
 			label: string;
+			question?: string;
 			choices: Choice[];
 			initial: string;
 	  }
-	| {id: string; kind: 'model'; label: string; initial: string}
+	| {
+			id: string;
+			kind: 'model';
+			label: string;
+			question?: string;
+			initial: string;
+	  }
 	| {
 			id: string;
 			kind: 'input' | 'secret';
 			label: string;
+			question?: string;
 			initial: string;
 			placeholder?: string;
 	  };
 
 const providerChoices: Choice[] = [
+	{value: 'claude-cli', label: 'Claude Code CLI'},
+	{value: 'codex-cli', label: 'Codex CLI'},
 	{value: 'anthropic', label: 'Anthropic API'},
 	{
 		value: 'openai',
@@ -49,16 +59,22 @@ const providerChoices: Choice[] = [
 		note: 'OpenAI, OpenRouter, Groq, Ollama, LM Studio',
 	},
 	{value: 'gemini', label: 'Gemini API'},
-	{value: 'claude-cli', label: 'Claude Code CLI'},
-	{value: 'codex-cli', label: 'Codex CLI'},
 	{value: 'command', label: 'Custom command', note: 'prompt on stdin'},
 	{value: 'off', label: 'Off'},
 ];
 
 const styleChoices: Choice[] = [
-	{value: 'repo', label: 'Match this repo', note: 'recent commits, AGENTS.md'},
-	{value: 'conventional', label: 'Conventional Commits'},
-	{value: 'custom', label: 'Custom instructions'},
+	{
+		value: 'repo',
+		label: 'Match this repo',
+		note: 'copies recent commit subjects, follows AGENTS.md / CLAUDE.md',
+	},
+	{
+		value: 'conventional',
+		label: 'Conventional Commits',
+		note: 'feat(scope): …, fix: …',
+	},
+	{value: 'custom', label: 'Custom instructions', note: 'write your own rules'},
 ];
 
 const visibleRows = 8;
@@ -82,6 +98,8 @@ export function fieldsFor(
 			id: 'command',
 			kind: 'input',
 			label: 'command',
+			question:
+				'Command that reads the prompt on stdin and prints the message.',
 			initial: stored.command ?? '',
 			placeholder: 'e.g. llm -m gpt-4o-mini',
 		});
@@ -91,6 +109,7 @@ export function fieldsFor(
 				id: 'baseUrl',
 				kind: 'input',
 				label: 'base URL',
+				question: 'Where the OpenAI-compatible API lives.',
 				initial: (same ? stored.baseUrl : undefined) ?? '',
 				placeholder: 'blank for OpenAI · http://localhost:11434/v1 for Ollama',
 			});
@@ -104,6 +123,7 @@ export function fieldsFor(
 				id: 'apiKey',
 				kind: 'secret',
 				label: 'API key',
+				question: `Saved to ${configPath()}.`,
 				initial: '',
 				placeholder: saved
 					? 'blank keeps the saved key'
@@ -115,6 +135,7 @@ export function fieldsFor(
 			id: 'model',
 			kind: 'model',
 			label: 'model',
+			question: 'Which model writes your commit messages and PR text.',
 			initial: (same ? stored.model : undefined) ?? defaultModels[provider],
 		});
 	}
@@ -122,7 +143,8 @@ export function fieldsFor(
 	fields.push({
 		id: 'style',
 		kind: 'choice',
-		label: 'style',
+		label: 'commit style',
+		question: 'How should AI-written commit messages be worded?',
 		choices: styleChoices,
 		initial: stored.style ?? 'repo',
 	});
@@ -132,6 +154,7 @@ export function fieldsFor(
 			id: 'instructions',
 			kind: 'input',
 			label: 'instructions',
+			question: 'Rules the AI follows when writing commit messages.',
 			initial: stored.instructions ?? '',
 			placeholder: 'e.g. lowercase subjects, mention the ticket id',
 		});
@@ -161,7 +184,8 @@ export function modelRows(
 export default function ConfigView({
 	onDone,
 	onSaved,
-}: ViewProps & {onSaved: (settings: Settings) => void}) {
+	firstRun = false,
+}: ViewProps & {onSaved: (settings: Settings) => void; firstRun?: boolean}) {
 	const [stored, setStored] = useState<StoredConfig | undefined>();
 	const [installed, setInstalled] = useState<Record<string, boolean>>({});
 	const [provider, setProvider] = useState<ProviderId | undefined>();
@@ -180,8 +204,16 @@ export default function ConfigView({
 			]);
 			setStored(config);
 			setInstalled({'claude-cli': claude, 'codex-cli': codex});
+			// First run has nothing saved yet: start on a CLI that's already set up.
+			const preferred = firstRun
+				? claude
+					? 'claude-cli'
+					: codex
+					? 'codex-cli'
+					: 'anthropic'
+				: config.provider ?? 'off';
 			const current = providerChoices.findIndex(
-				choice => choice.value === (config.provider ?? 'off'),
+				choice => choice.value === preferred,
 			);
 			setIndex(Math.max(0, current));
 		})();
@@ -310,7 +342,13 @@ export default function ConfigView({
 
 	const back = () => {
 		if (!provider) {
-			onDone('');
+			// Skipping on first run saves "off" so the menu doesn't come back every run.
+			if (firstRun) {
+				void save('off', {});
+			} else {
+				onDone('');
+			}
+
 			return;
 		}
 
@@ -423,7 +461,10 @@ export default function ConfigView({
 			parts.push(choice.note);
 		}
 
-		if ((stored.provider ?? 'off') === choice.value) parts.push('current');
+		if (!firstRun && (stored.provider ?? 'off') === choice.value) {
+			parts.push('current');
+		}
+
 		return {text: parts.join(' · '), dim: unavailable};
 	};
 
@@ -432,7 +473,7 @@ export default function ConfigView({
 		hint = 'type to filter or name any model · ↑↓ · ⏎ pick · esc back';
 	} else if (isList) {
 		hint = `↑↓ choose · ⏎ ${provider ? 'next' : 'select'} · esc ${
-			provider ? 'back' : 'cancel'
+			provider ? 'back' : firstRun ? 'skip' : 'cancel'
 		}`;
 	}
 
@@ -449,6 +490,15 @@ export default function ConfigView({
 					{progress}
 				</Text>
 			</Text>
+
+			{firstRun && !provider ? (
+				<Text>
+					Welcome to ckout. Pick an AI to write commit messages and PRs
+					<Text dimColor> · change it anytime with ckout config</Text>
+				</Text>
+			) : undefined}
+
+			{field?.question ? <Text>{field.question}</Text> : undefined}
 
 			{field?.kind === 'model' ? (
 				<Text>
