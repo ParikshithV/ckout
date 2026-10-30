@@ -50,6 +50,8 @@ export type Field =
 	  };
 
 const providerChoices: Choice[] = [
+	{value: 'claude-cli', label: 'Claude Code CLI'},
+	{value: 'codex-cli', label: 'Codex CLI'},
 	{value: 'anthropic', label: 'Anthropic API'},
 	{
 		value: 'openai',
@@ -57,8 +59,6 @@ const providerChoices: Choice[] = [
 		note: 'OpenAI, OpenRouter, Groq, Ollama, LM Studio',
 	},
 	{value: 'gemini', label: 'Gemini API'},
-	{value: 'claude-cli', label: 'Claude Code CLI'},
-	{value: 'codex-cli', label: 'Codex CLI'},
 	{value: 'command', label: 'Custom command', note: 'prompt on stdin'},
 	{value: 'off', label: 'Off'},
 ];
@@ -184,7 +184,8 @@ export function modelRows(
 export default function ConfigView({
 	onDone,
 	onSaved,
-}: ViewProps & {onSaved: (settings: Settings) => void}) {
+	firstRun = false,
+}: ViewProps & {onSaved: (settings: Settings) => void; firstRun?: boolean}) {
 	const [stored, setStored] = useState<StoredConfig | undefined>();
 	const [installed, setInstalled] = useState<Record<string, boolean>>({});
 	const [provider, setProvider] = useState<ProviderId | undefined>();
@@ -203,8 +204,16 @@ export default function ConfigView({
 			]);
 			setStored(config);
 			setInstalled({'claude-cli': claude, 'codex-cli': codex});
+			// First run has nothing saved yet: start on a CLI that's already set up.
+			const preferred = firstRun
+				? claude
+					? 'claude-cli'
+					: codex
+					? 'codex-cli'
+					: 'anthropic'
+				: config.provider ?? 'off';
 			const current = providerChoices.findIndex(
-				choice => choice.value === (config.provider ?? 'off'),
+				choice => choice.value === preferred,
 			);
 			setIndex(Math.max(0, current));
 		})();
@@ -333,7 +342,13 @@ export default function ConfigView({
 
 	const back = () => {
 		if (!provider) {
-			onDone('');
+			// Skipping on first run saves "off" so the menu doesn't come back every run.
+			if (firstRun) {
+				void save('off', {});
+			} else {
+				onDone('');
+			}
+
 			return;
 		}
 
@@ -446,7 +461,10 @@ export default function ConfigView({
 			parts.push(choice.note);
 		}
 
-		if ((stored.provider ?? 'off') === choice.value) parts.push('current');
+		if (!firstRun && (stored.provider ?? 'off') === choice.value) {
+			parts.push('current');
+		}
+
 		return {text: parts.join(' · '), dim: unavailable};
 	};
 
@@ -455,7 +473,7 @@ export default function ConfigView({
 		hint = 'type to filter or name any model · ↑↓ · ⏎ pick · esc back';
 	} else if (isList) {
 		hint = `↑↓ choose · ⏎ ${provider ? 'next' : 'select'} · esc ${
-			provider ? 'back' : 'cancel'
+			provider ? 'back' : firstRun ? 'skip' : 'cancel'
 		}`;
 	}
 
@@ -472,6 +490,13 @@ export default function ConfigView({
 					{progress}
 				</Text>
 			</Text>
+
+			{firstRun && !provider ? (
+				<Text>
+					Welcome to ckout. Pick an AI to write commit messages and PRs
+					<Text dimColor> · change it anytime with ckout config</Text>
+				</Text>
+			) : undefined}
 
 			{field?.question ? <Text>{field.question}</Text> : undefined}
 

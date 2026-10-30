@@ -13,6 +13,8 @@ type Props = {
 	settings: Settings;
 	flags: Flags;
 	initialView: View;
+	/** Config opened on its own before the commit card; finishing it continues there. */
+	firstRun?: boolean;
 };
 
 export default function Root({
@@ -20,6 +22,7 @@ export default function Root({
 	settings: initialSettings,
 	flags,
 	initialView,
+	firstRun = false,
 }: Props) {
 	const {exit} = useApp();
 	const [view, setView] = useState<View>(initialView);
@@ -56,6 +59,15 @@ export default function Root({
 			return (
 				<ConfigView
 					{...props}
+					firstRun={firstRun}
+					onDone={(text, exitCode) => {
+						// Ctrl+C leaves no text: quit. Otherwise carry on to the card.
+						if (firstRun && text) {
+							setView('commit');
+						} else {
+							onDone(text, exitCode);
+						}
+					}}
 					onSaved={(next: Settings) => {
 						setSettings(next);
 					}}

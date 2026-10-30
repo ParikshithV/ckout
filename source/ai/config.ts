@@ -89,6 +89,16 @@ export async function readStoredConfig(
 	}
 }
 
+/** False until something (usually `ckout config`) has written the config file. */
+export async function hasStoredConfig(file = configPath()): Promise<boolean> {
+	try {
+		await fs.access(file);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export async function writeStoredConfig(
 	config: StoredConfig,
 	file = configPath(),

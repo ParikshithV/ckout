@@ -1,5 +1,13 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'ava';
-import {aiTag, resolveSettings} from '../source/ai/config.js';
+import {
+	aiTag,
+	hasStoredConfig,
+	resolveSettings,
+	writeStoredConfig,
+} from '../source/ai/config.js';
 import {
 	branchFromSubject,
 	cleanSubject,
@@ -20,6 +28,15 @@ test('AI stays off until a provider is picked', t => {
 	const settings = resolveSettings({}, {ANTHROPIC_API_KEY: 'k'});
 	t.is(settings.ai.provider, 'off');
 	t.is(settings.ai.tag, 'ai off · ckout config');
+});
+
+test('hasStoredConfig is false until the config is written', async t => {
+	const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ckout-'));
+	const file = path.join(dir, 'ckout', 'config.json');
+	t.false(await hasStoredConfig(file));
+	await writeStoredConfig({provider: 'off'}, file);
+	t.true(await hasStoredConfig(file));
+	await fs.rm(dir, {recursive: true});
 });
 
 test('provider from the config file picks up its key env var', t => {
