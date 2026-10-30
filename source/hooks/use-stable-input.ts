@@ -1,10 +1,11 @@
 import {useCallback, useRef} from 'react';
-import {useInput, type Key} from 'ink';
+import {useInput, useStdin, type Key} from 'ink';
 
 export function useStableInput(
 	handler: (input: string, key: Key) => void,
 	isActive = true,
 ): void {
+	const {isRawModeSupported} = useStdin();
 	const handlerRef = useRef(handler);
 	handlerRef.current = handler;
 
@@ -12,5 +13,6 @@ export function useStableInput(
 		handlerRef.current(input, key);
 	}, []);
 
-	useInput(stable, {isActive});
+	// Without a TTY (pipes, CI) there are no keys to read; `-y` runs without them.
+	useInput(stable, {isActive: isActive && Boolean(isRawModeSupported)});
 }

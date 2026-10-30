@@ -1,10 +1,10 @@
 # ckout
 
-Open-source terminal UI for git. Review branches and local changes without leaving the keyboard. Diffs stay out of the way until you ask. Every mutating action shows the **exact `git` command** before it runs.
+A small git card for your terminal. Run `ckout`, glance at what's about to happen, press one key. Commit messages and PR descriptions can be written by an AI you bring yourself (API key, local model, or an agent CLI you already use).
 
 ckout is MIT-licensed. Contributions are welcome.
 
-Requires **Node.js 18+** and **git** on your `PATH`.
+Requires **Node.js 18+** and **git** on your `PATH`. PR features use the [GitHub CLI](https://cli.github.com) (`gh`).
 
 ## Install
 
@@ -12,180 +12,97 @@ Requires **Node.js 18+** and **git** on your `PATH`.
 npm install --global ckout
 ```
 
-Or run without installing:
+## The card
+
+```
+$ ckout
+main · 3 files +42 −7
+✦ Add AI commit message generation          claude-haiku · key
+⏎ push   b branch   p PR   ?
+```
+
+| Key | Does                                                          |
+| --- | ------------------------------------------------------------- |
+| `⏎` | Commit everything and push here                               |
+| `b` | Same, on a new branch named from the message (`push -u`)      |
+| `p` | Same, then open a PR (on a feature branch: commit, push, PR)  |
+| `e` | Edit the message · `g` regenerate · `f` pick files · `d` diff |
+| `?` | Show the exact commands each key will run                     |
+| `:` | `f` fetch · `u` pull · `b` branches · `r` PR · `c` config     |
+
+When it's done the card collapses to one line:
+
+```
+✓ feat/ai-commit-messages · 3f2a91c → origin/feat/ai-commit-messages · PR #42 https://…
+```
+
+`⏎` follows the repo's state: **pull** when behind, **push** when ahead, **publish** for a new branch, **PR** when a pushed branch has none yet, and a notice when the branch has diverged. On the default branch (or any `protectedBranches`), `b` and `p` are listed first. With nothing to do, ckout prints `✓ clean` and exits.
 
 ```bash
-npx ckout
+ckout -m "Fix typo"   # use this message, skip AI
+ckout -y              # run ⏎ without asking (works in scripts)
+ckout --no-push       # commit only
+ckout --verbose       # print the commands that ran
 ```
 
-Start it from inside a git repository:
+## AI, on your terms
+
+AI is off until you turn it on. ckout never ships a key and sends nothing unless you've picked a backend.
 
 ```bash
-cd path/to/repo
-ckout
+ckout config
 ```
+
+| Backend           | Uses                                                                              | Tag                      |
+| ----------------- | --------------------------------------------------------------------------------- | ------------------------ |
+| Anthropic         | `ANTHROPIC_API_KEY` (default model `claude-haiku-5-5`)                            | `claude-haiku · key`     |
+| OpenAI-compatible | `OPENAI_API_KEY` + optional base URL: OpenAI, OpenRouter, Groq, Ollama, LM Studio | `llama3.2 · local`       |
+| Gemini            | `GEMINI_API_KEY`                                                                  | `gemini-2.5-flash · key` |
+| Claude Code CLI   | `claude -p`, with its own sign-in                                                 | `claude cli`             |
+| Codex CLI         | `codex exec`, with its own sign-in                                                | `codex cli`              |
+| Custom command    | any command: prompt on stdin, message on stdout (e.g. `llm`)                      | `cmd`                    |
+
+The tag sits at the end of the message line. While the model writes, you'll see `writing…` (`esc` to cancel and type your own). If it fails, the tag says why (`ai failed · 401 bad key`) and you get an empty prompt; a commit is never blocked. Editing the draft drops the `✦`.
+
+What gets sent: the branch name, the changed file list, the diff (lockfiles skipped, capped around 40 KB), and for the default **repo** style, your last 20 commit subjects plus `AGENTS.md` / `CLAUDE.md`. Styles: `repo`, `conventional`, `custom`.
+
+Settings live in `~/.config/ckout/config.json` (mode `600`). Environment variables win over the file:
+
+| Variable            | Meaning                                                                      |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `CKOUT_AI_PROVIDER` | `anthropic`, `openai`, `gemini`, `claude-cli`, `codex-cli`, `command`, `off` |
+| `CKOUT_AI_MODEL`    | Model name                                                                   |
+| `CKOUT_AI_BASE_URL` | OpenAI-compatible endpoint                                                   |
+| `CKOUT_AI_API_KEY`  | Key for the chosen provider                                                  |
+| `CKOUT_AI_COMMAND`  | Command for the `command` provider (turns it on by itself)                   |
+
+Other config keys: `mergeMethod` (`squash` · `merge` · `rebase`), `protectedBranches` (array).
+
+## Pull requests
 
 ```bash
-ckout --help
-ckout --version
+ckout pr        # PR for the current branch
+ckout pr 123    # check out PR #123
 ```
 
-## Why ckout
-
-- One screen for **local branches** (plus remotes you have not checked out yet) and **changed files**
-- Keyboard starts on the **commit message**; `tab` moves to branches and files when you need diffs
-- Diff is **opt-in** (full-screen pager or your editor), not the default view
-- Commands are transparent: the prompt and confirm overlay print the `git` argv that will run
-- Built with [Ink](https://github.com/vadimdemedes/ink) (React for CLIs)
-
-## Screen
-
 ```
-ckout  my-repo  prompt · commit
-[main]  3 changed  ↑1 ↓0
-┌─ Branches 1/12 ───┐  ┌─ Changes ────────────┐
-│ * main            │  │ [ ] M src/app.tsx    │
-│   feature/login   │  │ [x] A readme.md      │
-│                   │  │                      │
-└───────────────────┘  └──────────────────────┘
-commit   git add -A && git commit -m "…"
-> █Commit message
-enter commit · tab branches · esc lists · …
+#42 Add AI commit message generation · open · ✓ 4/4 checks · approved
+⏎ merge (squash)   a auto-merge   d draft   o open   x close   s method
 ```
 
-| Area     | What it shows                                                      |
-| -------- | ------------------------------------------------------------------ |
-| Header   | Product name, repo folder, focus (prompt / branches / files), mode |
-| Status   | Current branch, dirty/clean, ahead/behind vs upstream              |
-| Branches | Local branches, then remotes with no local twin; `*` = checked out |
-| Changes  | Working-tree files with index/worktree status (`M`, `A`, `??`, …)  |
-| Prompt   | Commit message by default; `>` means the input has keyboard focus  |
-| Footer   | Context-sensitive key hints                                        |
+Merge, auto-merge and close ask for a second press. Merging deletes the branch and puts you back on the base branch. New PRs reuse an open one if it exists, follow `.github/pull_request_template.md` when present, and fall back to `gh pr create --fill` when AI is off.
 
-Status refreshes about every 3 seconds after git commands, and whenever the working tree is polled.
-
-## Features
-
-### Branches
-
-- Lists **local** branches first. Remote-tracking refs (`origin/foo`) appear only when there is no local `foo` (so `origin/main` is hidden if you already have `main`). Remotes are dimmed. Ahead/behind vs upstream stays in the status bar.
-- `↑` `↓` move the highlight; the list scrolls so every branch is reachable
-- `enter` on a **local** branch runs `git checkout <branch>` immediately
-- `enter` on a **remote** branch asks to confirm, then `git checkout -B <short> <remote-ref>`
-- `n` opens the prompt to **create or checkout** by name (`git checkout` or `git checkout -b`)
-- `m` **merges** the highlighted branch into the current one (confirm): `git merge <ref>`
-
-### Changes
-
-- File list of uncommitted work; `tab` from the commit prompt focuses Branches, then Changes
-- `space` marks/unmarks files (`[x]`); if none are marked, stage uses the highlighted file
-- `s` stages marked files: `git add -- <files>`
-- `/` filters the file list by path (prompt mode `filter`; no git)
-- `c` or `i` returns to the **commit message** (the default focus when ckout starts). `enter` submits `git add -A && git commit -m "<message>"` (confirm)
-
-### Diff (opt-in)
-
-Diff is not shown on the home screen.
-
-- `enter` (on a file) or `d` — full-screen unified diff (loads `git diff` / `git diff --cached`)
-- `↑` `↓` / `PgUp` `PgDn` — scroll; `←` `→` — previous/next file
-- `esc` — back to the home screen
-- `e` — open the file in an editor; if the file is gone (deleted), opens a temporary `.diff` instead
-
-### Sync with remotes
-
-| Key | Command     | Confirm?        |
-| --- | ----------- | --------------- |
-| `f` | `git fetch` | No              |
-| `u` | `git pull`  | No              |
-| `p` | `git push`  | Yes (`Y` / `n`) |
-
-### Command transparency
-
-- Starts focused on the **commit message**. `tab` moves to branches, then files (for diffs); `shift+tab` goes the other way. `esc` from the prompt also focuses the file list without clearing the message.
-- Confirm overlays (`Y` / `n`; Enter does not confirm) are used for **commit**, **push**, **merge**, and **remote checkout**
-- The overlay includes the **working directory** (repo root)
-
-ckout runs `git` with explicit argv (no shell). It does not use a high-level git library for writes.
-
-## Keyboard reference
-
-Focus starts on the commit message. Lists are idle until you `tab` (or `esc`) to them:
-
-| Key         | Action                                          |
-| ----------- | ----------------------------------------------- |
-| `tab`       | Prompt → Branches → Changes → prompt            |
-| `shift+tab` | Reverse that cycle                              |
-| `↑` `↓`     | Move in the active list                         |
-| `enter`     | Checkout highlighted branch, or open file diff  |
-| `n`         | New / checkout branch (prompt)                  |
-| `c` / `i`   | Focus the commit message (keeps typed text)     |
-| `/`         | Filter files                                    |
-| `f`         | Fetch                                           |
-| `u`         | Pull (or unstage when Changes is focused)       |
-| `p`         | Push (confirm)                                  |
-| `s`         | Stage marked (or highlighted) files             |
-| `m`         | Merge highlighted branch into current (confirm) |
-| `d`         | Full-screen diff of the highlighted file        |
-| `e`         | Open highlighted file (or patch) in editor      |
-| `space`     | Mark/unmark a file (focuses Changes)            |
-| `esc`       | From a list: back to the commit prompt          |
-| `ctrl+c`    | Quit                                            |
-
-While typing in the prompt:
-
-| Key         | Action                              |
-| ----------- | ----------------------------------- |
-| `enter`     | Submit (commit / checkout / filter) |
-| `↑` `↓`     | Prompt history                      |
-| `tab`       | Focus Branches (keep the message)   |
-| `shift+tab` | Focus Changes                       |
-| `esc`       | Focus Changes (keep the message)    |
-
-Full-screen diff:
-
-| Key           | Action             |
-| ------------- | ------------------ |
-| `↑` `↓`       | Scroll one line    |
-| `PgUp` `PgDn` | Scroll a page      |
-| `←` `→`       | Other changed file |
-| `e`           | Open in editor     |
-| `c`           | Close diff, commit |
-| `esc`         | Close diff         |
-
-Confirm overlay:
-
-| Key   | Action                |
-| ----- | --------------------- |
-| `Y`   | Run the shown command |
-| `n`   | Cancel                |
-| `esc` | Cancel                |
-
-## Editor
-
-`e` uses, in order:
-
-1. `$CKOUT_EDITOR`
-2. `$VISUAL`
-3. `$EDITOR`
-4. Then, if that binary is missing: `cursor`, `code`, `open -t` (macOS), `nano`, `vim`, `vi`
-
-A missing editor no longer crashes the TUI. If none of the candidates exist, the status line asks you to set `CKOUT_EDITOR`.
-
-GUI tools (`cursor`, `code`, `code-insiders`, `subl`, `atom`, `windsurf`, `open`) open detached so the TUI stays up. Other editors inherit the terminal.
-
-Example:
+## Branches
 
 ```bash
-export CKOUT_EDITOR='code -g'
-ckout
+ckout b
 ```
+
+Type to filter (fuzzy), `⏎` switch (remote branches get a tracking branch), `^n` create from what you typed, `^o` merge into the current branch, `^x` delete (asks again; offers a force delete for unmerged branches).
 
 ## Development
 
 ```bash
-git clone <your-fork-url>
-cd ckout
 npm install
 npm test
 npm run build
@@ -197,17 +114,3 @@ node dist/cli.js
 | `npm test`      | Prettier, xo, Ava             |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run dev`   | Watch compile                 |
-
-Stack: TypeScript, React 18, Ink 5, `@inkjs/ui`. Git is spawned as a child process.
-
-## Contributing
-
-ckout is open source under the [MIT License](LICENSE).
-
-- Bug reports and ideas: open an issue on the project tracker
-- Code: fork, branch, keep changes focused, run `npm test`
-- Keep git commands visible in the UI when you add actions
-
-## License
-
-[MIT](LICENSE) © Parikshith V

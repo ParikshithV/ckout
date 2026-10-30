@@ -3,54 +3,101 @@ import process from 'node:process';
 import React from 'react';
 import {render} from 'ink';
 import meow from 'meow';
-import App from './app.js';
-import {enterAppScreen, leaveAppScreen} from './lib/terminal.js';
+import {loadSettings} from './ai/config.js';
+import {resolveRepoRoot, runGit} from './git/run.js';
+import {type Flags, type View} from './types.js';
+import Root from './ui/root.js';
 
-meow(
+const cli = meow(
 	`
 	Usage
-	  $ ckout
+	  $ ckout              Review changes, then commit & push
+	  $ ckout pr [number]  Current branch's PR (merge, ready, close…), or check one out
+	  $ ckout b            Switch, create, merge or delete branches
+	  $ ckout config       Pick an AI backend for commit messages and PRs
 
-	ckout: branches and changed files on one screen. Diff is opt-in.
+	On the card
+	  ⏎   commit & push here
+	  b   same, on a new branch
+	  p   same, on a new branch, then open a PR
+	  e   edit message · g regenerate · f pick files · d diff · : more · ? plan
 
-	Keys
-	  tab       Prompt → branches → files (shift+tab reverse)
-	  enter     Commit from the prompt, or checkout / open a diff from a list
-	  n         New branch (prompt)
-	  c / i     Back to the commit message
-	  f / u / p Fetch / pull / push
-	  d / e     Full-screen diff / open in editor
-	  esc       Lists ↔ prompt
-	  ctrl+c    Quit
+	Options
+	  -m, --message   Use this commit message (skips AI)
+	  -y, --yes       Run ⏎ without asking
+	  --no-push       Commit only
+	  --verbose       Print the git commands that ran
 `,
 	{
 		importMeta: import.meta,
 		autoHelp: true,
 		autoVersion: true,
+		flags: {
+			message: {type: 'string', alias: 'm'},
+			yes: {type: 'boolean', alias: 'y', default: false},
+			push: {type: 'boolean', default: true},
+			verbose: {type: 'boolean', default: false},
+		},
 	},
 );
 
-if (process.stdin.isTTY) {
-	process.stdin.resume();
+const [command, argument] = cli.input;
+const views: Record<string, View> = {
+	pr: 'pr',
+	b: 'branch',
+	branch: 'branch',
+	config: 'config',
+};
+const view: View = command ? views[command] ?? 'commit' : 'commit';
+
+if (command && !views[command]) {
+	console.error(`Unknown command: ${command}\nRun ckout --help`);
+	process.exit(2);
 }
 
-enterAppScreen(process.stdout);
+// `ckout pr 123` is a one-shot checkout; no UI needed.
+if (view === 'pr' && argument) {
+	const {runProcess} = await import('./lib/process.js');
+	const result = await runProcess('gh', ['pr', 'checkout', argument], {
+		timeoutMs: 120_000,
+	}).catch(() => ({stdout: '', stderr: 'gh is not installed', code: 127}));
+	const branch = (
+		await runGit(process.cwd(), ['branch', '--show-current'])
+	).stdout.trim();
+	console.log(
+		result.code === 0
+			? `✓ PR #${argument} → ${branch}`
+			: `✗ ${result.stderr.trim().split('\n')[0] ?? 'gh pr checkout failed'}`,
+	);
+	process.exit(result.code === 0 ? 0 : 1);
+}
 
-const ink = render(<App />, {
-	stdin: process.stdin,
-	stdout: process.stdout,
-});
+const root = await resolveRepoRoot(process.cwd());
+if (!root && view !== 'config') {
+	console.error(`✗ not a git repo: ${process.cwd()}`);
+	process.exit(1);
+}
 
-const dismissUi = (): void => {
-	try {
-		ink.clear();
-	} catch {
-		// Ink may already have unmounted.
-	}
+if (!process.stdin.isTTY && !(view === 'commit' && cli.flags.yes)) {
+	console.error('✗ not a terminal · use ckout -y (with -m or AI set up)');
+	process.exit(2);
+}
 
-	leaveAppScreen(process.stdout);
+const flags: Flags = {
+	yes: cli.flags.yes,
+	noPush: !cli.flags.push,
+	verbose: cli.flags.verbose,
+	message: cli.flags.message,
 };
 
-process.once('exit', dismissUi);
+const ink = render(
+	<Root
+		root={root ?? process.cwd()}
+		settings={await loadSettings()}
+		flags={flags}
+		initialView={view}
+	/>,
+	{exitOnCtrlC: false},
+);
+
 await ink.waitUntilExit();
-dismissUi();
