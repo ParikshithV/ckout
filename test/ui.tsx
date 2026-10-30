@@ -7,7 +7,7 @@ import {
 	switchArgs,
 } from '../source/ui/branch-picker.js';
 import {aiShortName} from '../source/ui/commit-card.js';
-import {fieldsFor} from '../source/ui/config-view.js';
+import {fieldsFor, modelRows} from '../source/ui/config-view.js';
 import {LineInput} from '../source/ui/line-input.js';
 import {prHeadline, prKeys} from '../source/ui/pr-card.js';
 import {type PullRequest} from '../source/git/gh.js';
@@ -70,7 +70,11 @@ test('config asks for a key only when its env var is missing', t => {
 	);
 	t.deepEqual(withEnv, ['model', 'style']);
 	const without = fieldsFor('openai', {}, {}).map(field => field.id);
-	t.deepEqual(without, ['baseUrl', 'model', 'apiKey', 'style']);
+	t.deepEqual(without, ['baseUrl', 'apiKey', 'model', 'style']);
+	const custom = fieldsFor('codex-cli', {}, {}, {style: 'custom'}).map(
+		field => field.id,
+	);
+	t.deepEqual(custom, ['model', 'style', 'instructions']);
 	t.deepEqual(fieldsFor('off', {}, {}), []);
 });
 
@@ -86,4 +90,21 @@ test('LineInput shows a placeholder and a cursor', t => {
 	t.true((empty.lastFrame() ?? '').includes('branch'));
 	const typed = render(<LineInput active={false} value="fix it" cursor={3} />);
 	t.is(typed.lastFrame(), 'fix it');
+});
+
+test('modelRows filters and offers the typed name', t => {
+	const models = [
+		{id: ''},
+		{id: 'gpt-6-luna', note: 'fast'},
+		{id: 'gpt-5.6-terra'},
+	];
+	t.deepEqual(
+		modelRows(models, 'luna').map(row => row.id),
+		['luna', 'gpt-6-luna'],
+	);
+	t.deepEqual(
+		modelRows(models, 'gpt-6-luna').map(row => row.id),
+		['gpt-6-luna'],
+	);
+	t.is(modelRows(models, '').length, 3);
 });

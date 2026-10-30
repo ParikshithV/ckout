@@ -53,6 +53,8 @@ AI is off until you turn it on. ckout never ships a key and sends nothing unless
 ckout config
 ```
 
+Pick a backend, then a model from a list: live from the provider's API (Anthropic, OpenAI-compatible including Ollama, Gemini), aliases for Claude Code, and your account's models for Codex (from `~/.codex/models_cache.json`). Type to filter, or type any model name. `esc` goes back a step; your current choices are preselected.
+
 | Backend           | Uses                                                                              | Tag                      |
 | ----------------- | --------------------------------------------------------------------------------- | ------------------------ |
 | Anthropic         | `ANTHROPIC_API_KEY` (default model `claude-haiku-5-5`)                            | `claude-haiku · key`     |
