@@ -37,6 +37,7 @@ Requires **Node.js 18+** and **Git**. PR actions also use [GitHub CLI](https://c
 |          `↵`          | Commit and push on this branch                       |
 |          `b`          | Create a branch, commit and push                     |
 |          `p`          | Create a branch, commit, push and open a PR          |
+|          `c`          | Commit only — no push, no branch, no PR              |
 | `e` · `g` · `f` · `d` | Edit message · regenerate · choose files · view diff |
 
 ```bash

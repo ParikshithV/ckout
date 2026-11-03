@@ -71,8 +71,9 @@ test('changes on a feature branch: ⏎ commits and pushes, p opens a PR here', t
 	const plan = resolvePlan(input(repo()));
 	t.deepEqual(
 		plan.actions.map(action => action.key),
-		['enter', 'b', 'p'],
+		['enter', 'b', 'p', 'c'],
 	);
+	t.deepEqual(argvs(plan, 'c'), ['add -A', 'commit -m Do the thing']);
 	t.deepEqual(argvs(plan, 'enter'), [
 		'add -A',
 		'commit -m Do the thing',
@@ -99,7 +100,7 @@ test('changes on the default branch lead with the new-branch actions', t => {
 	t.true(plan.onDefault);
 	t.deepEqual(
 		plan.actions.map(action => action.key),
-		['b', 'p', 'enter'],
+		['b', 'p', 'enter', 'c'],
 	);
 	t.deepEqual(argvs(plan, 'p'), [
 		'switch -c feat/thing',
@@ -116,7 +117,7 @@ test('an open PR hides p on a feature branch', t => {
 	);
 	t.deepEqual(
 		plan.actions.map(action => action.key),
-		['enter', 'b'],
+		['enter', 'b', 'c'],
 	);
 });
 
@@ -127,11 +128,13 @@ test('no remote: ⏎ only commits and p is not offered', t => {
 	const enter = plan.actions.find(action => action.key === 'enter');
 	t.is(enter?.label, 'commit');
 	t.false(plan.actions.some(action => action.key === 'p'));
+	t.false(plan.actions.some(action => action.key === 'c'));
 });
 
 test('--no-push commits only', t => {
 	const plan = resolvePlan(input(repo(), {noPush: true}));
 	t.deepEqual(argvs(plan, 'enter'), ['add -A', 'commit -m Do the thing']);
+	t.false(plan.actions.some(action => action.key === 'c'));
 });
 
 test('a body becomes a second -m', t => {

@@ -20,6 +20,7 @@ const cli = meow(
 	  ⏎   commit & push here
 	  b   same, on a new branch
 	  p   same, on a new branch, then open a PR
+	  c   commit only (no push)
 	  e   edit message · g regenerate · f pick files · d diff · : more · ? plan
 
 	Options
