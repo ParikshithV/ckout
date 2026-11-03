@@ -33,7 +33,7 @@ type AiState =
 	| {status: 'done'}
 	| {status: 'failed'; reason: string};
 
-const actionKeys: Record<string, ActionKey> = {b: 'b', p: 'p'};
+const actionKeys: Record<string, ActionKey> = {b: 'b', p: 'p', c: 'c'};
 
 export function aiShortName(tag: string): string {
 	return tag.split(' · ')[0] ?? tag;

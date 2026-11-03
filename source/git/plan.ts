@@ -8,7 +8,7 @@ export type PlanStep =
 	| {kind: 'git'; phase: Exclude<Phase, 'pr'>; argv: string[]}
 	| {kind: 'pr'; phase: 'pr'; base: string; head: string};
 
-export type ActionKey = 'enter' | 'b' | 'p';
+export type ActionKey = 'enter' | 'b' | 'p' | 'c';
 
 export type CardAction = {
 	key: ActionKey;
@@ -171,8 +171,13 @@ export function resolvePlan(input: PlanInput): Plan {
 			});
 		}
 
+		const ordered = onDefault ? [...actions.slice(1), here] : actions;
+		if (canPush) {
+			ordered.push({key: 'c', label: 'commit', steps: commitSteps(input)});
+		}
+
 		return plan(
-			onDefault ? [...actions.slice(1), here] : actions,
+			ordered,
 			status.behind > 0 ? `behind ↓${status.behind}` : undefined,
 		);
 	}
